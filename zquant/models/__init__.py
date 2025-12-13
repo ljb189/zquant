@@ -16,16 +16,17 @@
 # Contact:
 #     - Email: kevin@vip.qq.com
 #     - Wechat: zquant2025
-#     - Issues: https://github.com/zquant/zquant/issues
-#     - Documentation: https://docs.zquant.com
-#     - Repository: https://github.com/zquant/zquant
+#     - Issues: https://github.com/yoyoung/zquant/issues
+#     - Documentation: https://github.com/yoyoung/zquant/blob/main/README.md
+#     - Repository: https://github.com/yoyoung/zquant
 
 """
 数据库模型模块
 """
 
 from zquant.models.backtest import BacktestResult, BacktestStatus, BacktestTask, Strategy
-from zquant.models.data import Config, DataOperationLog, Fundamental, TableStatistics, Tustock, TustockTradecal
+from zquant.models.data import Config, DataOperationLog, Fundamental, StockFavorite, StockPosition, TableStatistics, Tustock, TustockTradecal
+from zquant.models.factor import FactorConfig, FactorDefinition, FactorModel
 from zquant.models.notification import Notification, NotificationType
 from zquant.models.scheduler import ScheduledTask, TaskExecution, TaskScheduleStatus, TaskStatus, TaskType
 from zquant.models.user import APIKey, Permission, Role, RolePermission, User
@@ -37,6 +38,9 @@ __all__ = [
     "BacktestTask",
     "Config",
     "DataOperationLog",
+    "FactorConfig",
+    "FactorDefinition",
+    "FactorModel",
     "Fundamental",
     "Notification",
     "NotificationType",
@@ -45,6 +49,8 @@ __all__ = [
     "RolePermission",
     "ScheduledTask",
     "Strategy",
+    "StockFavorite",
+    "StockPosition",
     "TableStatistics",
     "TaskExecution",
     "TaskScheduleStatus",

@@ -24,7 +24,7 @@
    - 如果可能，提供复现步骤
 
 2. **使用 GitHub Security Advisories** (推荐)
-   - 访问: https://github.com/zquant/zquant/security/advisories
+   - 访问: https://github.com/yoyoung/zquant/security/advisories
    - 点击 "Report a vulnerability"
    - 填写漏洞详情
 
@@ -83,7 +83,7 @@
 如有安全相关问题，请联系：
 
 - **邮箱**: kevin@vip.qq.com
-- **GitHub Security**: https://github.com/zquant/zquant/security/advisories
+- **GitHub Security**: https://github.com/yoyoung/zquant/security/advisories
 
 ---
 

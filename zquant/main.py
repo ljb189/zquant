@@ -16,9 +16,9 @@
 # Contact:
 #     - Email: kevin@vip.qq.com
 #     - Wechat: zquant2025
-#     - Issues: https://github.com/zquant/zquant/issues
-#     - Documentation: https://docs.zquant.com
-#     - Repository: https://github.com/zquant/zquant
+#     - Issues: https://github.com/yoyoung/zquant/issues
+#     - Documentation: https://github.com/yoyoung/zquant/blob/main/README.md
+#     - Repository: https://github.com/yoyoung/zquant
 
 """
 FastAPI应用入口
@@ -31,7 +31,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
-from zquant.api.v1 import auth, backtest, config, dashboard, data, notifications, permissions, roles, scheduler, users
+from zquant.api.v1 import auth, backtest, config, dashboard, data, factor, favorites, notifications, permissions, positions, roles, scheduler, users
 from zquant.config import settings
 from zquant.database import SessionLocal
 from zquant.middleware.audit import AuditMiddleware
@@ -83,15 +83,17 @@ console_handler.setLevel(getattr(logging, settings.LOG_LEVEL.upper(), logging.IN
 # 文件处理器（按日滚动，支持多线程）
 handlers = [console_handler]
 if settings.LOG_FILE:
-    from logging.handlers import TimedRotatingFileHandler
     import os
 
     # 确保日志目录存在
     log_dir = os.path.dirname(settings.LOG_FILE) if os.path.dirname(settings.LOG_FILE) else "."
     os.makedirs(log_dir, exist_ok=True)
 
-    # 创建按日滚动的文件处理器（线程安全）
-    file_handler = TimedRotatingFileHandler(
+    # 使用Windows兼容的日志处理器（解决文件被占用时的滚动问题）
+    from zquant.utils.log_handler import WindowsCompatibleTimedRotatingFileHandler
+
+    # 创建按日滚动的文件处理器（线程安全，Windows兼容）
+    file_handler = WindowsCompatibleTimedRotatingFileHandler(
         filename=settings.LOG_FILE,
         when="midnight",  # 每天午夜滚动
         interval=1,  # 间隔1天
@@ -223,6 +225,9 @@ app.include_router(scheduler.router, prefix="/api/v1/scheduler", tags=["定时�
 app.include_router(config.router, prefix="/api/v1", tags=["配置管理"])
 app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["通知中心"])
 app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["系统大盘"])
+app.include_router(favorites.router, prefix="/api/v1/favorites", tags=["我的自选"])
+app.include_router(positions.router, prefix="/api/v1/positions", tags=["我的持仓"])
+app.include_router(factor.router, prefix="/api/v1/factor", tags=["因子管理"])
 
 
 @app.get("/")

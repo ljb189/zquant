@@ -86,4 +86,4 @@ npm test
 
 ## More
 
-You can view full document on our [official website](https://pro.ant.design). And welcome any feedback in our [github](https://github.com/zquant/zquant).
+You can view full document on our [official website](https://pro.ant.design). And welcome any feedback in our [github](https://github.com/yoyoung/zquant).

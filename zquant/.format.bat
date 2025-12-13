@@ -18,9 +18,9 @@ REM Author: kevin
 REM Contact:
 REM     - Email: kevin@vip.qq.com
 REM     - Wechat: zquant2025
-REM     - Issues: https://github.com/zquant/zquant/issues
-REM     - Documentation: https://docs.zquant.com
-REM     - Repository: https://github.com/zquant/zquant
+REM     - Issues: https://github.com/yoyoung/zquant/issues
+REM     - Documentation: https://github.com/yoyoung/zquant/blob/main/README.md
+REM     - Repository: https://github.com/yoyoung/zquant
 
 REM 代码格式化和检查脚本（Windows）
 REM 使用方法: .format.bat [check|fix|format]

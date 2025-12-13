@@ -16,9 +16,9 @@
 # Contact:
 #     - Email: kevin@vip.qq.com
 #     - Wechat: zquant2025
-#     - Issues: https://github.com/zquant/zquant/issues
-#     - Documentation: https://docs.zquant.com
-#     - Repository: https://github.com/zquant/zquant
+#     - Issues: https://github.com/yoyoung/zquant/issues
+#     - Documentation: https://github.com/yoyoung/zquant/blob/main/README.md
+#     - Repository: https://github.com/yoyoung/zquant
 
 """
 通知相关Pydantic模型
@@ -65,15 +65,15 @@ class NotificationUpdate(BaseModel):
 class NotificationResponse(BaseModel):
     """通知响应模型"""
 
-    id: int
-    user_id: int
-    type: str
-    title: str
-    content: str
-    is_read: bool
-    extra_data: dict[str, Any] | None
-    created_at: datetime
-    updated_at: datetime
+    id: int = Field(..., description="通知ID")
+    user_id: int = Field(..., description="用户ID")
+    type: str = Field(..., description="通知类型：system, task, data等")
+    title: str = Field(..., description="通知标题")
+    content: str = Field(..., description="通知内容")
+    is_read: bool = Field(..., description="是否已读")
+    extra_data: dict[str, Any] | None = Field(None, description="额外数据（JSON格式）")
+    created_at: datetime = Field(..., description="创建时间")
+    updated_at: datetime = Field(..., description="更新时间")
 
     class Config:
         from_attributes = True
@@ -95,10 +95,10 @@ class NotificationResponse(BaseModel):
 class NotificationListResponse(BaseModel):
     """通知列表响应（分页）"""
 
-    items: list[NotificationResponse]
-    total: int
-    skip: int
-    limit: int
+    items: list[NotificationResponse] = Field(..., description="通知列表")
+    total: int = Field(..., description="总记录数")
+    skip: int = Field(..., description="跳过记录数")
+    limit: int = Field(..., description="限制返回记录数")
 
     class Config:
         from_attributes = True
@@ -107,5 +107,5 @@ class NotificationListResponse(BaseModel):
 class NotificationStatsResponse(BaseModel):
     """通知统计响应"""
 
-    unread_count: int
-    total_count: int
+    unread_count: int = Field(..., description="未读通知数")
+    total_count: int = Field(..., description="总通知数")

@@ -16,9 +16,9 @@
 # Contact:
 #     - Email: kevin@vip.qq.com
 #     - Wechat: zquant2025
-#     - Issues: https://github.com/zquant/zquant/issues
-#     - Documentation: https://docs.zquant.com
-#     - Repository: https://github.com/zquant/zquant
+#     - Issues: https://github.com/yoyoung/zquant/issues
+#     - Documentation: https://github.com/yoyoung/zquant/blob/main/README.md
+#     - Repository: https://github.com/yoyoung/zquant
 
 """
 配置管理模块
@@ -26,13 +26,15 @@
 
 from pydantic_settings import BaseSettings
 
+from zquant import __version__
+
 
 class Settings(BaseSettings):
     """应用配置"""
 
     # 应用配置
     APP_NAME: str = "ZQuant"
-    APP_VERSION: str = "0.1.0"
+    APP_VERSION: str = __version__
     DEBUG: bool = False
     APP_PORT: int = 8000  # 应用端口
     APP_HOST: str = "0.0.0.0"  # 应用主机地址

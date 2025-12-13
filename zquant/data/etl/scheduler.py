@@ -16,9 +16,9 @@
 # Contact:
 #     - Email: kevin@vip.qq.com
 #     - Wechat: zquant2025
-#     - Issues: https://github.com/zquant/zquant/issues
-#     - Documentation: https://docs.zquant.com
-#     - Repository: https://github.com/zquant/zquant
+#     - Issues: https://github.com/yoyoung/zquant/issues
+#     - Documentation: https://github.com/yoyoung/zquant/blob/main/README.md
+#     - Repository: https://github.com/yoyoung/zquant
 
 """
 数据采集定时任务调度
@@ -200,7 +200,7 @@ class DataScheduler:
         """
         from sqlalchemy import inspect as sqlalchemy_inspect
 
-        from zquant.data.database import convert_sqlalchemy_type_to_mysql
+        from zquant.utils.db_type_utils import convert_sqlalchemy_type_to_mysql
 
         mapper = sqlalchemy_inspect(model_class)
         column = mapper.columns.get(field_name)

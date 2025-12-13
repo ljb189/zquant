@@ -3,7 +3,8 @@
   "version": "6.0.0",
   "private": true,
   "description": "ZQuant量化分析平台前端应用",
-  "repository": "https://github.com/zquant/zquant",
+  "license": "Apache-2.0",
+  "repository": "https://github.com/yoyoung/zquant",
   "scripts": {
     "analyze": "cross-env ANALYZE=1 max build",
     "biome:lint": "npx @biomejs/biome lint",

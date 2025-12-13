@@ -16,9 +16,9 @@
 # Contact:
 #     - Email: kevin@vip.qq.com
 #     - Wechat: zquant2025
-#     - Issues: https://github.com/zquant/zquant/issues
-#     - Documentation: https://docs.zquant.com
-#     - Repository: https://github.com/zquant/zquant
+#     - Issues: https://github.com/yoyoung/zquant/issues
+#     - Documentation: https://github.com/yoyoung/zquant/blob/main/README.md
+#     - Repository: https://github.com/yoyoung/zquant
 
 """
 数据相关数据库模型
@@ -34,11 +34,13 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     SmallInteger,
     String,
     Text,
     UniqueConstraint,
 )
+from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.mysql import DOUBLE as Double
 from sqlalchemy.sql import func
 
@@ -936,6 +938,111 @@ def create_tustock_stkfactorpro_class(ts_code: str):
 TUSTOCK_STKFACTORPRO_VIEW_NAME = "zq_data_tustock_stkfactorpro_view"
 
 
+# ==================== 自定义量化因子结果表（zq_quant_factor_spacex_*） ====================
+
+def get_spacex_factor_table_name(code: str) -> str:
+    """
+    根据 code 生成自定义量化因子结果表名称
+
+    Args:
+        code: 股票代码（如：000001.SZ 或 000001）
+
+    Returns:
+        表名，如：zq_quant_factor_spacex_000001
+    """
+    # 提取股票代码部分（去掉交易所后缀）
+    # 例如：000001.SZ -> 000001
+    if "." in code:
+        code_part = code.split(".")[0]
+    else:
+        code_part = code
+    # 将特殊字符替换为下划线并转小写
+    table_suffix = code_part.replace("-", "_").lower()
+    return f"zq_quant_factor_spacex_{table_suffix}"
+
+
+def create_spacex_factor_class(code: str):
+    """
+    动态创建 SpacexFactor 模型类（按 code 分表）
+
+    基础字段：
+    - id: 主键（自增）
+    - trade_date: 交易日期（对应 tablestructure 中的 date）
+    - code: 股票代码（6位）
+    - created_by: 创建人
+    - created_time: 创建时间
+    - updated_by: 修改人
+    - updated_time: 修改时间
+
+    主键：(trade_date, code)
+    索引：idx_trade_date
+
+    注意：因子列（如 turnover_rate）通过 ALTER TABLE ADD COLUMN 动态添加
+
+    Args:
+        code: 股票代码（如：000001.SZ 或 000001）
+
+    Returns:
+        SQLAlchemy 模型类
+    """
+    table_name = get_spacex_factor_table_name(code)
+    # 计算 table_suffix 用于约束和索引名称（去掉交易所后缀）
+    if "." in code:
+        code_part = code.split(".")[0]
+    else:
+        code_part = code
+    table_suffix = code_part.replace("-", "_").lower()
+
+    # 在类定义外部定义约束和索引名称，确保可以在类内部访问
+    constraint_name = f"uq_spacex_factor_{table_suffix}_ts_code_date"
+    index_name = f"idx_spacex_factor_{table_suffix}_trade_date_code"
+
+    class SpacexFactor(Base):
+        """自定义量化因子结果表"""
+
+        __database__ = "zquant"  # 数据库名称
+        __tablename__ = table_name  # 数据表名称（动态）
+        __cnname__ = "自定义量化因子"  # 数据表中文名称
+        __datasource__ = "二次加工"  # 数据源
+        __columns__ = {
+            "ts_code": {
+                "type": String(10),  # 类型
+                "index": True,  # 索引
+            },
+            "trade_date": {
+                "type": Date,  # 类型
+                "index": True,  # 索引
+            },
+        }
+
+        id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+        ts_code = Column(
+            String(10), nullable=False, index=True, info={"name": "TS代码"}, comment="TS代码，如：000001.SZ"
+        )
+        trade_date = Column(Date, nullable=False, index=True, info={"name": "交易日期"}, comment="交易日期")
+        created_by = Column(String(50), nullable=True, info={"name": "创建人"}, comment="创建人")
+        created_time = Column(
+            DateTime, default=func.now(), nullable=False, info={"name": "创建时间"}, comment="创建时间"
+        )
+        updated_by = Column(String(50), nullable=True, info={"name": "修改人"}, comment="修改人")
+        updated_time = Column(
+            DateTime,
+            default=func.now(),
+            onupdate=func.now(),
+            nullable=False,
+            info={"name": "修改时间"},
+            comment="修改时间",
+        )
+
+        # 唯一约束：同一股票同一日期只能有一条记录
+        __table_args__ = (
+            UniqueConstraint("ts_code", "trade_date", name=constraint_name),
+            Index(index_name, "ts_code", "trade_date"),
+        )
+
+    return SpacexFactor
+
+
 # zq_stats_
 class DataOperationLog(Base):
     """数据操作日志表（API接口数据同步日志）"""
@@ -1032,3 +1139,89 @@ class Config(Base):
     )
 
     __table_args__ = (Index("idx_config_key", "config_key"),)
+
+
+class StockFavorite(Base):
+    """我的自选表（对应TABLE_CN_STOCK_ATTENTION）"""
+
+    __database__ = "zquant"  # 数据库名称
+    __tablename__ = "zq_quant_favorite"  # 数据表名称
+    __cnname__ = "我的自选"  # 数据表中文名称
+    __datasource__ = "二次加工"  # 数据源
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(
+        Integer, ForeignKey("zq_app_users.id"), nullable=False, index=True, info={"name": "用户ID"}, comment="用户ID"
+    )
+    fav_datettime = Column(DateTime, nullable=True, index=True, info={"name": "自选日期"}, comment="自选日期")
+    code = Column(String(6), nullable=False, index=True, info={"name": "代码"}, comment="股票代码（6位数字），如：000001")
+    comment = Column(String(2000), nullable=True, info={"name": "关注理由"}, comment="关注理由")
+    created_by = Column(String(50), nullable=True, info={"name": "创建人"}, comment="创建人")
+    created_time = Column(DateTime, default=func.now(), nullable=False, info={"name": "创建时间"}, comment="创建时间")
+    updated_by = Column(String(50), nullable=True, info={"name": "修改人"}, comment="修改人")
+    updated_time = Column(
+        DateTime, default=func.now(), onupdate=func.now(), nullable=False, info={"name": "修改时间"}, comment="修改时间"
+    )
+
+    # 唯一约束：同一用户同一股票代码只能有一条记录
+    __table_args__ = (
+        UniqueConstraint("user_id", "code", name="uq_stock_favorite_user_code"),
+        Index("idx_stock_favorite_user_id", "user_id"),
+        Index("idx_stock_favorite_code", "code"),
+        Index("idx_stock_favorite_datettime", "fav_datettime"),
+    )
+
+    class Config:
+        from_attributes = True
+
+
+class StockPosition(Base):
+    """我的持仓表（对应TABLE_CN_STOCK_POSITION）"""
+
+    __database__ = "zquant"  # 数据库名称
+    __tablename__ = "zq_quant_position"  # 数据表名称
+    __cnname__ = "我的持仓"  # 数据表中文名称
+    __datasource__ = "二次加工"  # 数据源
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(
+        Integer, ForeignKey("zq_app_users.id"), nullable=False, index=True, info={"name": "用户ID"}, comment="用户ID"
+    )
+    code = Column(String(6), nullable=False, index=True, info={"name": "代码"}, comment="股票代码（6位数字），如：000001")
+    quantity = Column(
+        Double, nullable=False, info={"name": "持仓数量"}, comment="持仓数量（股数）"
+    )
+    avg_cost = Column(
+        Numeric(10, 3), nullable=False, info={"name": "平均成本价"}, comment="平均成本价（元）"
+    )
+    buy_date = Column(Date, nullable=True, index=True, info={"name": "买入日期"}, comment="买入日期")
+    current_price = Column(
+        Numeric(10, 3), nullable=True, info={"name": "当前价格"}, comment="当前价格（元），可从行情数据获取"
+    )
+    market_value = Column(
+        Double, nullable=True, info={"name": "市值"}, comment="市值（元），quantity * current_price"
+    )
+    profit = Column(
+        Double, nullable=True, info={"name": "盈亏"}, comment="盈亏（元），(current_price - avg_cost) * quantity"
+    )
+    profit_pct = Column(
+        Numeric(10, 4), nullable=True, info={"name": "盈亏比例"}, comment="盈亏比例（%），(current_price - avg_cost) / avg_cost * 100"
+    )
+    comment = Column(String(2000), nullable=True, info={"name": "备注"}, comment="备注")
+    created_by = Column(String(50), nullable=True, info={"name": "创建人"}, comment="创建人")
+    created_time = Column(DateTime, default=func.now(), nullable=False, info={"name": "创建时间"}, comment="创建时间")
+    updated_by = Column(String(50), nullable=True, info={"name": "修改人"}, comment="修改人")
+    updated_time = Column(
+        DateTime, default=func.now(), onupdate=func.now(), nullable=False, info={"name": "修改时间"}, comment="修改时间"
+    )
+
+    # 唯一约束：同一用户同一股票代码只能有一条记录
+    __table_args__ = (
+        UniqueConstraint("user_id", "code", name="uq_stock_position_user_code"),
+        Index("idx_stock_position_user_id", "user_id"),
+        Index("idx_stock_position_code", "code"),
+        Index("idx_stock_position_buy_date", "buy_date"),
+    )
+
+    class Config:
+        from_attributes = True

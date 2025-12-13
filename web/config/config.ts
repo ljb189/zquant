@@ -16,9 +16,9 @@
 // Contact:
 //     - Email: kevin@vip.qq.com
 //     - Wechat: zquant2025
-//     - Issues: https://github.com/zquant/zquant/issues
-//     - Documentation: https://docs.zquant.com
-//     - Repository: https://github.com/zquant/zquant
+//     - Issues: https://github.com/yoyoung/zquant/issues
+//     - Documentation: https://github.com/yoyoung/zquant/blob/main/README.md
+//     - Repository: https://github.com/yoyoung/zquant
 
 // https://umijs.org/config/
 
@@ -201,4 +201,26 @@ export default defineConfig({
   esbuildMinifyIIFE: true,
   requestRecord: {},
   exportStatic: {},
+  // 生产环境代码混淆配置（使用 Terser）
+  ...(process.env.NODE_ENV === 'production' && {
+    chainWebpack(config: any) {
+      // 配置 Terser 进行代码混淆
+      config.optimization.minimizer('terser').tap((args: any[]) => {
+        args[0].terserOptions = {
+          ...args[0].terserOptions,
+          compress: {
+            drop_console: true, // 移除 console 语句
+            drop_debugger: true, // 移除 debugger 语句
+            pure_funcs: ['console.log', 'console.info', 'console.debug'], // 移除指定的函数调用
+          },
+          mangle: {
+            properties: {
+              regex: /^_/, // 混淆以下划线开头的属性
+            },
+          },
+        };
+        return args;
+      });
+    },
+  }),
 });

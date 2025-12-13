@@ -16,9 +16,9 @@
 # Contact:
 #     - Email: kevin@vip.qq.com
 #     - Wechat: zquant2025
-#     - Issues: https://github.com/zquant/zquant/issues
-#     - Documentation: https://docs.zquant.com
-#     - Repository: https://github.com/zquant/zquant
+#     - Issues: https://github.com/yoyoung/zquant/issues
+#     - Documentation: https://github.com/yoyoung/zquant/blob/main/README.md
+#     - Repository: https://github.com/yoyoung/zquant
 
 """
 回测引擎核心
@@ -80,8 +80,11 @@ class BacktestEngine:
         self.symbols = config.get("symbols", [])
         self.frequency = config.get("frequency", "daily")
 
-        # 交易日历
-        self.trading_dates = DataProcessor.get_trading_dates(db, self.start_date, self.end_date)
+        # 交易日历（使用Repository）
+        from zquant.repositories.trading_date_repository import TradingDateRepository
+
+        trading_date_repo = TradingDateRepository(db)
+        self.trading_dates = trading_date_repo.get_trading_dates(self.start_date, self.end_date)
         if not self.trading_dates:
             raise ValueError("没有找到交易日")
 
@@ -100,14 +103,19 @@ class BacktestEngine:
             self.context._get_daily_basic_func = None
 
     def _load_price_data(self):
-        """加载价格数据（使用新的日线数据接口）"""
+        """加载价格数据（使用批量查询优化）"""
         logger.info("加载价格数据...")
-        for symbol in self.symbols:
-            # 使用新的日线数据接口
-            records = DataProcessor.get_daily_data_records(
-                self.db, ts_code=symbol, start_date=self.start_date, end_date=self.end_date
-            )
+        from zquant.repositories.price_data_repository import PriceDataRepository
 
+        # 使用Repository批量加载所有股票的价格数据
+        price_repo = PriceDataRepository(self.db)
+        all_price_data = price_repo.batch_get_daily_data(
+            self.symbols, self.start_date, self.end_date
+        )
+
+        # 处理批量加载的数据
+        for symbol in self.symbols:
+            records = all_price_data.get(symbol, [])
             if records:
                 # 转换为DataFrame
                 df = pd.DataFrame(records)
@@ -130,14 +138,19 @@ class BacktestEngine:
         logger.info(f"加载了 {len(self.price_data)} 只股票的价格数据")
 
     def _load_daily_basic_data(self):
-        """加载每日指标数据"""
+        """加载每日指标数据（使用批量查询优化）"""
         logger.info("加载每日指标数据...")
-        for symbol in self.symbols:
-            # 使用每日指标数据接口
-            records = DataProcessor.get_daily_basic_data_records(
-                self.db, ts_code=symbol, start_date=self.start_date, end_date=self.end_date
-            )
+        from zquant.repositories.price_data_repository import PriceDataRepository
 
+        # 使用Repository批量加载所有股票的每日指标数据
+        price_repo = PriceDataRepository(self.db)
+        all_daily_basic_data = price_repo.batch_get_daily_basic_data(
+            self.symbols, self.start_date, self.end_date
+        )
+
+        # 处理批量加载的数据
+        for symbol in self.symbols:
+            records = all_daily_basic_data.get(symbol, [])
             if records:
                 # 转换为DataFrame
                 df = pd.DataFrame(records)

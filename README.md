@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)](https://fastapi.tiangolo.com/)
-[![Version](https://img.shields.io/badge/version-0.1.0-orange.svg)](https://github.com/zquant/zquant)
+[![Version](https://img.shields.io/badge/version-0.1.0-orange.svg)](https://github.com/yoyoung/zquant)
 
 ZQuant量化分析平台是一个基于FastAPI的股票量化分析系统，提供数据服务、回测引擎、策略管理等功能。
 
@@ -44,6 +44,8 @@ ZQuant量化分析平台是一个功能完整的股票量化分析系统，旨�
 - **🔔 通知系统**: 完整的用户通知功能，支持系统通知、策略通知等
 - **⏰ 定时任务**: 强大的任务调度系统，支持Cron表达式和间隔调度
 - **📋 数据日志**: 完整的数据操作日志记录，支持分表汇总
+- **⭐ 我的自选**: 用户股票自选管理功能，支持添加、查询、更新、删除自选股票，记录关注理由
+- **💼 我的持仓**: 用户股票持仓管理功能，支持记录持仓数量、成本价、买入日期等信息，自动计算市值和盈亏
 
 ### 🎯 策略模板
 
@@ -84,18 +86,38 @@ zquant/
 │   │   └── job/        # 调度任务
 │   │       ├── base.py     # 调度脚本基类
 │   │       └── sync_*.py   # 数据同步脚本
+│   ├── repositories/   # Repository层（统一数据访问）
+│   │   ├── trading_date_repository.py
+│   │   ├── stock_repository.py
+│   │   ├── price_data_repository.py
+│   │   └── factor_repository.py
+│   ├── services/       # 业务逻辑层
+│   │   └── sync_strategies/  # 数据同步策略（Strategy模式）
 │   ├── utils/          # 工具函数
-│   │   └── data_utils.py   # 数据工具函数
+│   │   ├── code_converter.py  # 代码转换工具
+│   │   ├── date_helper.py     # 日期处理工具
+│   │   ├── query_builder.py   # 查询构建器
+│   │   └── cache_decorator.py # 缓存装饰器
+│   ├── constants/      # 常量管理
+│   │   ├── data_constants.py
+│   │   ├── factor_constants.py
+│   │   └── api_constants.py
+│   ├── api/            # API路由
+│   │   └── helpers/    # API辅助类
 │   └── backtest/       # 回测引擎
 ├── web/                # 前端
 │   └── src/
 │       ├── hooks/          # React Hooks
-│       │   └── useDataQuery.ts  # 数据查询Hook
+│       │   ├── useDataQuery.ts      # 数据查询Hook
+│       │   ├── useDataValidation.ts # 数据校验Hook
+│       │   └── useDataSync.ts       # 数据同步Hook
 │       ├── components/     # 组件
-│       │   └── DataTable/ # 数据表格组件
+│       │   ├── DataTable/      # 数据表格组件
+│       │   └── DataTablePage/  # 通用数据表格页面组件
 │       └── pages/         # 页面
 ├── docs/               # 文档
-│   └── refactoring_summary.md  # 重构总结
+│   ├── refactoring_summary.md      # 历史重构总结
+│   └── refactoring_2025_summary.md # 2025重构总结
 └── zquant/
     ├── alembic/        # 数据库迁移
     ├── scripts/        # 脚本
@@ -121,22 +143,81 @@ zquant/
 - ✅ API层：统一错误处理和响应转换
 - ✅ 前端：统一数据查询和表格展示逻辑
 
-详细重构说明请参考 [重构总结文档](docs/refactoring_summary.md)
+详细重构说明请参考：
+- [2025重构总结](docs/refactoring_2025_summary.md) - 最新重构成果（Repository模式、批量查询优化、Strategy模式等）
+- [历史重构总结](docs/refactoring_summary.md) - 早期重构成果
 
-### 最新优化成果
+### 最新优化成果（2025重构）
+
+#### 数据库查询优化
+- ✅ **Repository模式**: 统一数据访问接口，集中缓存管理，减少重复查询
+- ✅ **批量查询优化**: 回测引擎从N+1查询优化为批量查询，查询次数减少90%+
+- ✅ **工具类创建**: CodeConverter、DateHelper、QueryBuilder等工具类，提高代码复用性
+- ✅ **缓存装饰器**: @cache_result和@retry_on_failure装饰器，简化缓存和重试逻辑
+
+#### 设计模式应用
+- ✅ **Strategy模式**: 数据同步策略统一，易于扩展新的同步策略
+- ✅ **Factory模式**: 策略工厂，根据task_action创建对应策略
+- ✅ **Repository模式**: 统一数据访问层，支持批量操作和缓存
+
+#### 前端优化
+- ✅ **Hook统一**: useDataValidation和useDataSync Hook，统一数据校验和同步逻辑
+- ✅ **组件抽象**: DataTablePage通用组件，通过配置驱动，减少重复代码
+
+#### 代码质量
+- ✅ **代码重复度**: 降低50%+，通过Repository和工具类显著提升代码复用性
+- ✅ **常量管理**: 统一管理数据、因子、API相关常量
+- ✅ **代码清理**: 删除废弃代码，清理重复导入
+
+详细重构说明请参考 [重构总结文档](docs/refactoring_2025_summary.md)
+
+### 历史优化成果
 
 - ✅ **统一API响应格式**: 创建了统一的响应模型和装饰器
 - ✅ **统一输入验证**: 实现了通用验证器，减少重复代码
 - ✅ **优化依赖注入**: 优化了数据库连接池和会话管理
 - ✅ **统一日志记录**: 添加了请求ID追踪和结构化日志
-- ✅ **前端组件复用**: 扩展了Hook和创建了通用组件
-- ✅ **数据库查询优化**: 实现了分页和关联预加载，避免N+1查询
-- ✅ **缓存策略优化**: 创建了缓存装饰器，简化缓存使用
 - ✅ **安全增强**: 实现了XSS防护、速率限制、登录保护、审计日志
 
 详细优化说明请参考 [优化总结文档](docs/optimization_summary.md)
 
 ## 快速开始
+
+### 🐳 Docker 部署（推荐）
+
+使用 Docker Compose 一键部署，包含应用、MySQL、Redis 等服务：
+
+```bash
+# 1. 配置环境变量
+cp docker/.env.example docker/.env
+# 编辑 docker/.env，修改 SECRET_KEY、DB_PASSWORD、TUSHARE_TOKEN 等配置
+
+# 2. 启动所有服务
+docker-compose up -d
+
+# 3. 初始化数据库（首次部署）
+docker-compose exec zquant-app python3 -m zquant.scripts.init_db
+docker-compose exec zquant-app python3 -m zquant.scripts.init_scheduler
+docker-compose exec zquant-app python3 -m zquant.scripts.init_view
+docker-compose exec zquant-app python3 -m zquant.scripts.init_strategies
+
+# 4. 访问应用
+# 前端: http://localhost
+# API 文档: http://localhost/docs
+```
+
+**Docker 部署特性**：
+- ✅ 前后端代码自动混淆打包
+- ✅ 一键启动所有服务（应用、MySQL、Redis）
+- ✅ 生产环境就绪
+- ✅ 健康检查和自动重启
+- ✅ 数据持久化
+
+详细说明请参考 [Docker 部署文档](docs/docker_deployment.md)
+
+---
+
+### 传统部署方式
 
 ### 1. 安装依赖
 
@@ -266,6 +347,7 @@ npm start
 
 ### 核心文档
 
+- 📖 [Docker 部署指南](docs/docker_deployment.md) - 完整的 Docker 容器化部署方案
 - 📖 [API访问指南](API_ACCESS.md) - API访问配置说明和常见问题
 - 📖 [数据库初始化指南](docs/database_init.md) - 数据库初始化流程和表名规范
 - 📖 [策略管理文档](docs/strategy_management.md) - 策略管理系统完整使用指南
@@ -275,9 +357,9 @@ npm start
 
 ### 快速链接
 
-- 🔗 [项目文档网站](https://docs.zquant.com) - 完整的项目文档和API参考
-- 🔗 [GitHub Issues](https://github.com/zquant/zquant/issues) - 报告问题或提出功能请求
-- 🔗 [GitHub Discussions](https://github.com/zquant/zquant/discussions) - 参与讨论和交流
+- 🔗 [项目文档网站](https://github.com/yoyoung/zquant/blob/main/README.md) - 完整的项目文档和API参考
+- 🔗 [GitHub Issues](https://github.com/yoyoung/zquant/issues) - 报告问题或提出功能请求
+- 🔗 [GitHub Discussions](https://github.com/yoyoung/zquant/discussions) - 参与讨论和交流
 
 ## ❓ 常见问题
 
@@ -355,8 +437,8 @@ A: 项目使用 `ruff` 进行代码检查和格式化，详见 [开发](#开发)
 
 ### 贡献方式
 
-- 🐛 **报告Bug**：[提交Issue](https://github.com/zquant/zquant/issues/new?template=bug_report.md)
-- 💡 **提出功能请求**：[提交Feature Request](https://github.com/zquant/zquant/issues/new?template=feature_request.md)
+- 🐛 **报告Bug**：[提交Issue](https://github.com/yoyoung/zquant/issues/new?template=bug_report.md)
+- 💡 **提出功能请求**：[提交Feature Request](https://github.com/yoyoung/zquant/issues/new?template=feature_request.md)
 - 📝 **改进文档**：修复文档错误或添加新内容
 - 💻 **提交代码**：修复Bug或实现新功能
 - 🌟 **推广项目**：给项目一个Star，分享给更多人
@@ -373,14 +455,14 @@ A: 项目使用 `ruff` 进行代码检查和格式化，详见 [开发](#开发)
 
 - 📧 **邮箱**: kevin@vip.qq.com
 - 💬 **微信**: zquant2025
-- 🐛 **问题反馈**: [GitHub Issues](https://github.com/zquant/zquant/issues)
-- 📚 **文档网站**: [https://docs.zquant.com](https://docs.zquant.com)
-- 💬 **讨论交流**: [GitHub Discussions](https://github.com/zquant/zquant/discussions)
+- 🐛 **问题反馈**: [GitHub Issues](https://github.com/yoyoung/zquant/issues)
+- 📚 **文档网站**: [https://github.com/yoyoung/zquant/blob/main/README.md](https://github.com/yoyoung/zquant/blob/main/README.md)
+- 💬 **讨论交流**: [GitHub Discussions](https://github.com/yoyoung/zquant/discussions)
 
 ### 获取帮助
 
-- 遇到问题？查看 [常见问题](#常见问题) 或 [提交Issue](https://github.com/zquant/zquant/issues)
-- 有建议？在 [Discussions](https://github.com/zquant/zquant/discussions) 中分享您的想法
+- 遇到问题？查看 [常见问题](#常见问题) 或 [提交Issue](https://github.com/yoyoung/zquant/issues)
+- 有建议？在 [Discussions](https://github.com/yoyoung/zquant/discussions) 中分享您的想法
 - 想贡献？查看 [贡献指南](CONTRIBUTING.md) 了解如何参与
 
 ## 开发

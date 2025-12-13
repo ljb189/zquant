@@ -16,12 +16,21 @@
 # Contact:
 #     - Email: kevin@vip.qq.com
 #     - Wechat: zquant2025
-#     - Issues: https://github.com/zquant/zquant/issues
-#     - Documentation: https://docs.zquant.com
-#     - Repository: https://github.com/zquant/zquant
+#     - Issues: https://github.com/yoyoung/zquant/issues
+#     - Documentation: https://github.com/yoyoung/zquant/blob/main/README.md
+#     - Repository: https://github.com/yoyoung/zquant
 
 """
 数据相关Pydantic模型
+
+# 数据库建表规范
+# 数据zq_data_tustock_/zq_data_baidu_
+# 量化zq_quant_
+# 任务zq_task_
+# 日志zq_log_
+
+# 字段规范
+# stock、ts_code、trade_date
 """
 
 from datetime import date, datetime
@@ -93,7 +102,7 @@ class StockListResponse(BaseModel):
 class DailyDataRequest(BaseModel):
     """获取日线数据请求"""
 
-    ts_code: str | None = Field(None, description="TS代码，如：000001.SZ，None表示查询所有")
+    ts_code: str | list[str] | None = Field(None, description="TS代码，单个代码如：000001.SZ，多个代码如：['000001.SZ', '000002.SZ']，None表示查询所有")
     start_date: date | None = Field(None, description="开始日期")
     end_date: date | None = Field(None, description="结束日期")
 
@@ -128,7 +137,7 @@ class DailyDataResponse(BaseModel):
 class DailyBasicRequest(BaseModel):
     """获取每日指标数据请求"""
 
-    ts_code: str | None = Field(None, description="TS代码，如：000001.SZ，None表示查询所有")
+    ts_code: str | list[str] | None = Field(None, description="TS代码，单个代码如：000001.SZ，多个代码如：['000001.SZ', '000002.SZ']，None表示查询所有")
     start_date: date | None = Field(None, description="开始日期")
     end_date: date | None = Field(None, description="结束日期")
 
@@ -267,7 +276,7 @@ class StatisticsTableDataResponse(BaseModel):
 class FactorDataRequest(BaseModel):
     """获取因子数据请求"""
 
-    ts_code: str | None = Field(None, description="TS代码，如：000001.SZ，None表示查询所有")
+    ts_code: str | list[str] | None = Field(None, description="TS代码，单个代码如：000001.SZ，多个代码如：['000001.SZ', '000002.SZ']，None表示查询所有")
     start_date: date | None = Field(None, description="开始日期")
     end_date: date | None = Field(None, description="结束日期")
 
@@ -334,7 +343,7 @@ class FactorDataResponse(BaseModel):
 class StkFactorProDataRequest(BaseModel):
     """获取专业版因子数据请求"""
 
-    ts_code: str | None = Field(None, description="TS代码，如：000001.SZ，None表示查询所有")
+    ts_code: str | list[str] | None = Field(None, description="TS代码，单个代码如：000001.SZ，多个代码如：['000001.SZ', '000002.SZ']，None表示查询所有")
     start_date: date | None = Field(None, description="开始日期")
     end_date: date | None = Field(None, description="结束日期")
 

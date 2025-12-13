@@ -16,9 +16,9 @@
 # Contact:
 #     - Email: kevin@vip.qq.com
 #     - Wechat: zquant2025
-#     - Issues: https://github.com/zquant/zquant/issues
-#     - Documentation: https://docs.zquant.com
-#     - Repository: https://github.com/zquant/zquant
+#     - Issues: https://github.com/yoyoung/zquant/issues
+#     - Documentation: https://github.com/yoyoung/zquant/blob/main/README.md
+#     - Repository: https://github.com/yoyoung/zquant
 
 """
 任务执行器
@@ -29,16 +29,16 @@ from typing import Any
 from loguru import logger
 from sqlalchemy.orm import Session
 
-from zquant.data.etl.scheduler import DataScheduler
 from zquant.models.scheduler import TaskExecution, TaskType
 from zquant.scheduler.base import TaskExecutor
 
 
 class DataSyncExecutor(TaskExecutor):
-    """数据同步任务执行器"""
+    """数据同步任务执行器（已重构为使用Strategy模式）"""
 
     def __init__(self):
-        self.data_scheduler = DataScheduler()
+        # 注意：已重构为使用Strategy模式，不再需要直接使用DataScheduler
+        pass
 
     def get_task_type(self) -> TaskType:
         return TaskType.COMMON_TASK
@@ -77,17 +77,14 @@ class DataSyncExecutor(TaskExecutor):
             extra_info = {"created_by": task_name, "updated_by": task_name}
 
         try:
-            if task_action == "sync_stock_list":
-                return self._sync_stock_list(db, extra_info)
-            if task_action == "sync_trading_calendar":
-                return self._sync_trading_calendar(db, config, extra_info)
-            if task_action == "sync_daily_data":
-                return self._sync_daily_data(db, config, extra_info)
-            if task_action == "sync_all_daily_data":
-                return self._sync_all_daily_data(db, config, extra_info)
-            raise ValueError(
-                f"不支持的任务动作: {task_action}。支持的 action: sync_stock_list, sync_trading_calendar, sync_daily_data, sync_all_daily_data"
-            )
+            # 使用Strategy模式创建对应的同步策略
+            from zquant.services.sync_strategies.factory import SyncStrategyFactory
+
+            strategy = SyncStrategyFactory.create_strategy(task_action)
+            return strategy.sync(db, config, extra_info)
+        except ValueError as e:
+            # 策略工厂抛出的ValueError，直接抛出
+            raise
         except Exception as e:
             logger.error(f"执行数据同步任务失败: {e}")
             raise
@@ -118,100 +115,8 @@ class DataSyncExecutor(TaskExecutor):
         }
         return string_to_action.get(task_type_str)
 
-    def _sync_stock_list(self, db: Session, extra_info: dict | None = None) -> dict[str, Any]:
-        """同步股票列表"""
-        count = self.data_scheduler.sync_stock_list(db, extra_info)
-        return {"success": True, "count": count, "message": f"成功同步 {count} 条股票列表"}
-
-    def _sync_trading_calendar(
-        self, db: Session, config: dict[str, Any], extra_info: dict | None = None
-    ) -> dict[str, Any]:
-        """同步交易日历"""
-        start_date = config.get("start_date")
-        end_date = config.get("end_date")
-        count = self.data_scheduler.sync_trading_calendar(db, start_date, end_date, extra_info=extra_info)
-        return {"success": True, "count": count, "message": f"成功同步 {count} 条交易日历"}
-
-    def _sync_daily_data(self, db: Session, config: dict[str, Any], extra_info: dict | None = None) -> dict[str, Any]:
-        """同步单只股票的日线数据（按 ts_code 分表存储）"""
-        ts_code = config.get("ts_code") or config.get("symbol")  # 兼容旧配置
-        if not ts_code:
-            raise ValueError("同步日线数据需要指定 ts_code 参数")
-
-        start_date = config.get("start_date")
-        end_date = config.get("end_date")
-        count = self.data_scheduler.sync_daily_data(db, ts_code, start_date, end_date, extra_info)
-        return {
-            "success": True,
-            "count": count,
-            "ts_code": ts_code,
-            "message": f"成功同步 {ts_code} 的 {count} 条日线数据",
-        }
-
-    def _sync_all_daily_data(
-        self, db: Session, config: dict[str, Any], extra_info: dict | None = None
-    ) -> dict[str, Any]:
-        """同步所有股票的日线数据"""
-        from datetime import date
-        from zquant.models.data import TustockTradecal
-        from sqlalchemy import desc
-
-        start_date = config.get("start_date")
-        end_date = config.get("end_date")
-        codelist = config.get("codelist")  # 可以是字符串（逗号分隔）或列表
-
-        # 处理 codelist：如果是字符串，转换为列表
-        if isinstance(codelist, str):
-            codelist = [code.strip() for code in codelist.split(",") if code.strip()]
-        elif codelist is None:
-            codelist = None
-
-        # 判断是否所有参数都未传入
-        all_params_empty = not codelist and not start_date and not end_date
-
-        # 如果所有参数都未传入，获取最后一个交易日
-        if all_params_empty:
-            try:
-                latest = (
-                    db.query(TustockTradecal.cal_date)
-                    .filter(TustockTradecal.is_open == 1, TustockTradecal.cal_date <= date.today())
-                    .order_by(desc(TustockTradecal.cal_date))
-                    .first()
-                )
-
-                if latest and latest[0]:
-                    latest_date = latest[0]
-                    start_date = end_date = latest_date.strftime("%Y%m%d")
-                    logger.info(f"所有参数均无传入，使用最后一个交易日: {start_date}")
-            except Exception as e:
-                logger.warning(f"获取最后一个交易日失败: {e}，使用默认值")
-
-        # 处理部分参数未传入的情况
-        if not start_date:
-            # 无start-date传参，默认开始时间为20250101
-            start_date = "20250101"
-            logger.info(f"未提供start-date，使用默认值: {start_date}")
-
-        if not end_date:
-            # 无end-date传参，默认结束时间为同步当日
-            from datetime import date as date_class
-
-            end_date = date_class.today().strftime("%Y%m%d")
-            logger.info(f"未提供end-date，使用默认值: {end_date}")
-
-        # 无codelist传参，默认同步所有code的数据（codelist=None）
-        if codelist:
-            logger.info(f"指定股票列表，共 {len(codelist)} 只股票")
-
-        result = self.data_scheduler.sync_all_daily_data(db, start_date, end_date, extra_info, codelist)
-        return {
-            "success": True,
-            "total": result.get("total", 0),
-            "success_count": result.get("success", 0),
-            "failed_count": len(result.get("failed", [])),
-            "failed_symbols": result.get("failed", []),
-            "message": f"同步完成: 成功 {result.get('success', 0)}/{result.get('total', 0)}",
-        }
+    # 注意：原有的_sync_*方法已移除，现在使用Strategy模式
+    # 如果需要保留这些方法作为向后兼容，可以保留，但建议使用Strategy模式
 
 
 # 任务执行器注册表（延迟导入以避免循环依赖）

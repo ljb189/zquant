@@ -1,0 +1,113 @@
+# Copyright 2025 ZQuant Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+version: '3.8'
+
+services:
+  # ZQuant 应用服务
+  zquant-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: zquant-app
+    ports:
+      - "80:80"
+    env_file:
+      - docker/.env
+    environment:
+      # 数据库连接（使用服务名）
+      DATABASE_URL: "mysql+pymysql://${DB_USER:-root}:${DB_PASSWORD}@mysql:3306/${DB_NAME:-zquant}?charset=utf8mb4"
+      # Redis 连接（使用服务名）
+      REDIS_URL: "redis://${REDIS_PASSWORD:+:${REDIS_PASSWORD}@}redis:6379/${REDIS_DB:-0}"
+      # 应用配置
+      DB_HOST: mysql
+      DB_PORT: 3306
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      # 工作进程数（可根据服务器配置调整）
+      WORKERS: ${WORKERS:-1}
+      # 日志级别
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # 是否初始化数据库（首次部署时设置为 true）
+      INIT_DATABASE: ${INIT_DATABASE:-false}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - zquant-network
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # MySQL 数据库服务
+  mysql:
+    image: mysql:8.0
+    container_name: zquant-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-zquant123456}
+      MYSQL_DATABASE: ${DB_NAME:-zquant}
+      MYSQL_USER: ${DB_USER:-root}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-zquant123456}
+      TZ: Asia/Shanghai
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/mysql-init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - zquant-network
+    restart: unless-stopped
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD:-zquant123456}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # Redis 缓存服务
+  redis:
+    image: redis:7-alpine
+    container_name: zquant-redis
+    command: redis-server --appendonly yes ${REDIS_PASSWORD:+--requirepass ${REDIS_PASSWORD}}
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - zquant-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  zquant-network:
+    driver: bridge
+
+volumes:
+  mysql_data:
+    driver: local
+  redis_data:
+    driver: local

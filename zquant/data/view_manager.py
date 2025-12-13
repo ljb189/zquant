@@ -16,9 +16,9 @@
 # Contact:
 #     - Email: kevin@vip.qq.com
 #     - Wechat: zquant2025
-#     - Issues: https://github.com/zquant/zquant/issues
-#     - Documentation: https://docs.zquant.com
-#     - Repository: https://github.com/zquant/zquant
+#     - Issues: https://github.com/yoyoung/zquant/issues
+#     - Documentation: https://github.com/yoyoung/zquant/blob/main/README.md
+#     - Repository: https://github.com/yoyoung/zquant
 
 """
 数据库视图管理模块
@@ -61,9 +61,9 @@ def get_all_daily_tables(db: Session) -> list:
     return sorted(daily_tables)
 
 
-def create_or_update_daily_view(db: Session) -> bool:
+def _create_or_update_daily_view_direct(db: Session) -> bool:
     """
-    创建或更新日线数据联合视图
+    直接使用Python代码创建或更新日线数据联合视图（私有函数，作为回退方案）
 
     Args:
         db: 数据库会话
@@ -101,6 +101,44 @@ def create_or_update_daily_view(db: Session) -> bool:
 
         logger.info(f"成功创建/更新视图 {TUSTOCK_DAILY_VIEW_NAME}，包含 {len(daily_tables)} 个分表")
         return True
+
+    except Exception as e:
+        logger.error(f"创建/更新日线数据视图失败: {e}")
+        db.rollback()
+        return False
+
+
+def create_or_update_daily_view(db: Session) -> bool:
+    """
+    创建或更新日线数据联合视图
+    优先使用存储过程，失败时回退到Python代码
+
+    Args:
+        db: 数据库会话
+
+    Returns:
+        是否成功
+    """
+    try:
+        # 先尝试使用存储过程
+        try:
+            db.execute(text("SET SESSION group_concat_max_len = 10485760"))
+            db.commit()
+
+            result = db.execute(text("CALL sp_create_daily_view()"))
+            db.commit()
+
+            # 获取存储过程的输出消息
+            message = result.fetchone()
+            if message:
+                logger.info(f"存储过程输出: {message[0]}")
+
+            logger.info("日线数据视图创建完成（通过存储过程）")
+            return True
+        except Exception as proc_error:
+            logger.warning(f"存储过程创建视图失败，回退到Python代码: {proc_error}")
+            # 回退到直接使用Python代码创建视图
+            return _create_or_update_daily_view_direct(db)
 
     except Exception as e:
         logger.error(f"创建/更新日线数据视图失败: {e}")
@@ -150,9 +188,9 @@ def get_all_daily_basic_tables(db: Session) -> list:
     return sorted(daily_basic_tables)
 
 
-def create_or_update_daily_basic_view(db: Session) -> bool:
+def _create_or_update_daily_basic_view_direct(db: Session) -> bool:
     """
-    创建或更新每日指标数据联合视图
+    直接使用Python代码创建或更新每日指标数据联合视图（私有函数，作为回退方案）
 
     Args:
         db: 数据库会话
@@ -190,6 +228,44 @@ def create_or_update_daily_basic_view(db: Session) -> bool:
 
         logger.info(f"成功创建/更新视图 {TUSTOCK_DAILY_BASIC_VIEW_NAME}，包含 {len(daily_basic_tables)} 个分表")
         return True
+
+    except Exception as e:
+        logger.error(f"创建/更新每日指标数据视图失败: {e}")
+        db.rollback()
+        return False
+
+
+def create_or_update_daily_basic_view(db: Session) -> bool:
+    """
+    创建或更新每日指标数据联合视图
+    优先使用存储过程，失败时回退到Python代码
+
+    Args:
+        db: 数据库会话
+
+    Returns:
+        是否成功
+    """
+    try:
+        # 先尝试使用存储过程
+        try:
+            db.execute(text("SET SESSION group_concat_max_len = 10485760"))
+            db.commit()
+
+            result = db.execute(text("CALL sp_create_daily_basic_view()"))
+            db.commit()
+
+            # 获取存储过程的输出消息
+            message = result.fetchone()
+            if message:
+                logger.info(f"存储过程输出: {message[0]}")
+
+            logger.info("每日指标数据视图创建完成（通过存储过程）")
+            return True
+        except Exception as proc_error:
+            logger.warning(f"存储过程创建视图失败，回退到Python代码: {proc_error}")
+            # 回退到直接使用Python代码创建视图
+            return _create_or_update_daily_basic_view_direct(db)
 
     except Exception as e:
         logger.error(f"创建/更新每日指标数据视图失败: {e}")
@@ -237,9 +313,9 @@ def get_all_factor_tables(db: Session) -> list:
     return sorted(factor_tables)
 
 
-def create_or_update_factor_view(db: Session) -> bool:
+def _create_or_update_factor_view_direct(db: Session) -> bool:
     """
-    创建或更新因子数据联合视图
+    直接使用Python代码创建或更新因子数据联合视图（私有函数，作为回退方案）
 
     Args:
         db: 数据库会话
@@ -277,6 +353,41 @@ def create_or_update_factor_view(db: Session) -> bool:
 
         logger.info(f"成功创建/更新视图 {TUSTOCK_FACTOR_VIEW_NAME}，包含 {len(factor_tables)} 个分表")
         return True
+
+    except Exception as e:
+        logger.error(f"创建/更新因子数据视图失败: {e}")
+        db.rollback()
+        return False
+
+
+def create_or_update_factor_view(db: Session) -> bool:
+    """
+    创建或更新因子数据联合视图
+    优先使用存储过程，失败时回退到Python代码
+
+    Args:
+        db: 数据库会话
+
+    Returns:
+        是否成功
+    """
+    try:
+        # 先尝试使用存储过程
+        try:
+            result = db.execute(text("CALL sp_create_factor_view()"))
+            db.commit()
+
+            # 获取存储过程的输出消息
+            message = result.fetchone()
+            if message:
+                logger.info(f"存储过程输出: {message[0]}")
+
+            logger.info("因子数据视图创建完成（通过存储过程）")
+            return True
+        except Exception as proc_error:
+            logger.warning(f"存储过程创建视图失败，回退到Python代码: {proc_error}")
+            # 回退到直接使用Python代码创建视图
+            return _create_or_update_factor_view_direct(db)
 
     except Exception as e:
         logger.error(f"创建/更新因子数据视图失败: {e}")
@@ -326,9 +437,9 @@ def get_all_stkfactorpro_tables(db: Session) -> list:
     return sorted(stkfactorpro_tables)
 
 
-def create_or_update_stkfactorpro_view(db: Session) -> bool:
+def _create_or_update_stkfactorpro_view_direct(db: Session) -> bool:
     """
-    创建或更新专业版因子数据联合视图
+    直接使用Python代码创建或更新专业版因子数据联合视图（私有函数，作为回退方案）
 
     Args:
         db: 数据库会话
@@ -366,6 +477,41 @@ def create_or_update_stkfactorpro_view(db: Session) -> bool:
 
         logger.info(f"成功创建/更新视图 {TUSTOCK_STKFACTORPRO_VIEW_NAME}，包含 {len(stkfactorpro_tables)} 个分表")
         return True
+
+    except Exception as e:
+        logger.error(f"创建/更新专业版因子数据视图失败: {e}")
+        db.rollback()
+        return False
+
+
+def create_or_update_stkfactorpro_view(db: Session) -> bool:
+    """
+    创建或更新专业版因子数据联合视图
+    优先使用存储过程，失败时回退到Python代码
+
+    Args:
+        db: 数据库会话
+
+    Returns:
+        是否成功
+    """
+    try:
+        # 先尝试使用存储过程
+        try:
+            result = db.execute(text("CALL sp_create_stkfactorpro_view()"))
+            db.commit()
+
+            # 获取存储过程的输出消息
+            message = result.fetchone()
+            if message:
+                logger.info(f"存储过程输出: {message[0]}")
+
+            logger.info("专业版因子数据视图创建完成（通过存储过程）")
+            return True
+        except Exception as proc_error:
+            logger.warning(f"存储过程创建视图失败，回退到Python代码: {proc_error}")
+            # 回退到直接使用Python代码创建视图
+            return _create_or_update_stkfactorpro_view_direct(db)
 
     except Exception as e:
         logger.error(f"创建/更新专业版因子数据视图失败: {e}")

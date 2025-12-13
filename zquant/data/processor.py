@@ -16,9 +16,9 @@
 # Contact:
 #     - Email: kevin@vip.qq.com
 #     - Wechat: zquant2025
-#     - Issues: https://github.com/zquant/zquant/issues
-#     - Documentation: https://docs.zquant.com
-#     - Repository: https://github.com/zquant/zquant
+#     - Issues: https://github.com/yoyoung/zquant/issues
+#     - Documentation: https://github.com/yoyoung/zquant/blob/main/README.md
+#     - Repository: https://github.com/yoyoung/zquant
 
 """
 数据清洗和处理模块
@@ -32,9 +32,11 @@ from sqlalchemy.orm import Session
 
 from zquant.models.data import (
     TUSTOCK_DAILY_BASIC_VIEW_NAME,
+    TUSTOCK_DAILY_VIEW_NAME,
     TUSTOCK_FACTOR_VIEW_NAME,
     TUSTOCK_STKFACTORPRO_VIEW_NAME,
     TustockTradecal,
+    get_daily_basic_table_name,
     get_daily_table_name,
     get_factor_table_name,
     get_stkfactorpro_table_name,
@@ -97,69 +99,61 @@ class DataProcessor:
 
     @staticmethod
     def get_daily_data_records(
-        db: Session, ts_code: str | None = None, start_date: date | None = None, end_date: date | None = None
+        db: Session, ts_code: str | list[str] | None = None, start_date: date | None = None, end_date: date | None = None
     ) -> list[dict]:
         """
-        获取日线数据记录列表（直接查询分表）
+        获取日线数据记录列表
 
         Args:
-            ts_code: TS代码，如：000001.SZ，None表示查询所有
+            ts_code: TS代码，单个代码如：000001.SZ，多个代码如：['000001.SZ', '000002.SZ']，None表示查询所有
             start_date: 开始日期
             end_date: 结束日期
+
+        逻辑：
+        - 单个code：直接查询分表
+        - 多个code或None：查询视图，如果视图不存在则抛出异常
         """
         from loguru import logger
         from sqlalchemy import inspect
 
-        from zquant.data.view_manager import get_all_daily_tables
         from zquant.database import engine
 
         records = []
 
-        # 构建查询条件
-        conditions = []
-        params = {}
+        # 判断是单个code还是多个code/None
+        is_single_code = isinstance(ts_code, str)
 
-        if ts_code:
+        if is_single_code:
+            # 单个code：直接查询分表
+            table_name = get_daily_table_name(ts_code)
+            inspector = inspect(engine)
+            if table_name not in inspector.get_table_names():
+                logger.warning(f"分表 {table_name} 不存在，返回空列表")
+                return []
+
+            # 构建查询条件
+            conditions = []
+            params = {}
+
             conditions.append("ts_code = :ts_code")
             params["ts_code"] = ts_code
 
-        if start_date:
-            conditions.append("trade_date >= :start_date")
-            params["start_date"] = start_date
+            if start_date:
+                conditions.append("trade_date >= :start_date")
+                params["start_date"] = start_date
 
-        if end_date:
-            conditions.append("trade_date <= :end_date")
-            params["end_date"] = end_date
+            if end_date:
+                conditions.append("trade_date <= :end_date")
+                params["end_date"] = end_date
 
-        where_clause = " AND ".join(conditions) if conditions else "1=1"
+            where_clause = " AND ".join(conditions) if conditions else "1=1"
 
-        # 确定要查询的表
-        tables_to_query = []
-
-        if ts_code:
-            # 如果指定了 ts_code，直接查询对应的分表
-            table_name = get_daily_table_name(ts_code)
-            # 检查表是否存在
-            inspector = inspect(engine)
-            if table_name in inspector.get_table_names():
-                tables_to_query = [table_name]
-            else:
-                logger.warning(f"分表 {table_name} 不存在，返回空列表")
-                return []
-        else:
-            # 如果没有指定 ts_code，查询所有分表
-            tables_to_query = get_all_daily_tables(db)
-            if not tables_to_query:
-                logger.warning("没有找到日线数据分表，返回空列表")
-                return []
-
-        # 查询每个分表并合并结果
-        for table_name in tables_to_query:
+            # 查询分表
             try:
                 sql = f"""
                 SELECT * FROM `{table_name}`
                 WHERE {where_clause}
-                ORDER BY ts_code, trade_date
+                ORDER BY ts_code, trade_date DESC
                 """
 
                 result = db.execute(text(sql), params)
@@ -221,117 +215,315 @@ class DataProcessor:
                     )
             except Exception as e:
                 logger.warning(f"查询分表 {table_name} 失败: {e}")
-                continue
+                return []
 
-        # 如果没有指定 ts_code，需要对结果按 ts_code 和 trade_date 排序
-        if not ts_code:
-            records.sort(key=lambda x: (x.get("ts_code", ""), x.get("trade_date", "")))
+        else:
+            # 多个code或None：查询视图，视图不存在则抛出异常
+            inspector = inspect(engine)
+            # 检查视图是否存在：视图可能在 get_table_names() 或 get_view_names() 中
+            all_tables = inspector.get_table_names()
+            all_views = inspector.get_view_names() if hasattr(inspector, 'get_view_names') else []
+            view_exists = TUSTOCK_DAILY_VIEW_NAME in all_tables or TUSTOCK_DAILY_VIEW_NAME in all_views
+
+            if not view_exists:
+                error_msg = f"视图 {TUSTOCK_DAILY_VIEW_NAME} 不存在，无法查询多个代码或查询所有数据。请先创建视图。"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+
+            # 构建查询条件
+            conditions = []
+            params = {}
+
+            if ts_code:  # 多个code的情况
+                if isinstance(ts_code, list) and len(ts_code) > 0:
+                    # 构建 IN 子句的占位符
+                    placeholders = ",".join([f":ts_code_{i}" for i in range(len(ts_code))])
+                    conditions.append(f"ts_code IN ({placeholders})")
+                    for i, code in enumerate(ts_code):
+                        params[f"ts_code_{i}"] = code
+            # ts_code 为 None 时，不添加 ts_code 条件，查询所有
+
+            if start_date:
+                conditions.append("trade_date >= :start_date")
+                params["start_date"] = start_date
+
+            if end_date:
+                conditions.append("trade_date <= :end_date")
+                params["end_date"] = end_date
+
+            where_clause = " AND ".join(conditions) if conditions else "1=1"
+
+            # 通过视图查询
+            sql = f"""
+            SELECT * FROM `{TUSTOCK_DAILY_VIEW_NAME}`
+            WHERE {where_clause}
+            ORDER BY ts_code, trade_date DESC
+            """
+
+            result = db.execute(text(sql), params)
+            rows = result.fetchall()
+
+            # 获取列名
+            columns = result.keys()
+
+            # 转换为字典列表
+            for row in rows:
+                row_dict = dict(zip(columns, row, strict=False))
+
+                # 处理日期字段
+                trade_date = row_dict.get("trade_date")
+                if trade_date and hasattr(trade_date, "isoformat"):
+                    trade_date_str = trade_date.isoformat()
+                elif trade_date:
+                    trade_date_str = str(trade_date)
+                else:
+                    trade_date_str = None
+
+                created_time = row_dict.get("created_time")
+                if created_time and hasattr(created_time, "isoformat"):
+                    created_time_str = created_time.isoformat()
+                elif created_time:
+                    created_time_str = str(created_time)
+                else:
+                    created_time_str = None
+
+                updated_time = row_dict.get("updated_time")
+                if updated_time and hasattr(updated_time, "isoformat"):
+                    updated_time_str = updated_time.isoformat()
+                elif updated_time:
+                    updated_time_str = str(updated_time)
+                else:
+                    updated_time_str = None
+
+                records.append(
+                    {
+                        "id": row_dict.get("id"),
+                        "ts_code": row_dict.get("ts_code"),
+                        "trade_date": trade_date_str,
+                        "open": float(row_dict.get("open")) if row_dict.get("open") is not None else None,
+                        "high": float(row_dict.get("high")) if row_dict.get("high") is not None else None,
+                        "low": float(row_dict.get("low")) if row_dict.get("low") is not None else None,
+                        "close": float(row_dict.get("close")) if row_dict.get("close") is not None else None,
+                        "pre_close": float(row_dict.get("pre_close"))
+                        if row_dict.get("pre_close") is not None
+                        else None,
+                        "change": float(row_dict.get("change")) if row_dict.get("change") is not None else None,
+                        "pct_chg": float(row_dict.get("pct_chg")) if row_dict.get("pct_chg") is not None else None,
+                        "vol": float(row_dict.get("vol")) if row_dict.get("vol") is not None else None,
+                        "amount": float(row_dict.get("amount")) if row_dict.get("amount") is not None else None,
+                        "created_by": row_dict.get("created_by"),
+                        "created_time": created_time_str,
+                        "updated_by": row_dict.get("updated_by"),
+                        "updated_time": updated_time_str,
+                    }
+                )
 
         return records
 
     @staticmethod
     def get_daily_basic_data_records(
-        db: Session, ts_code: str | None = None, start_date: date | None = None, end_date: date | None = None
+        db: Session, ts_code: str | list[str] | None = None, start_date: date | None = None, end_date: date | None = None
     ) -> list[dict]:
         """
-        获取每日指标数据记录列表（通过视图查询）
+        获取每日指标数据记录列表
 
         Args:
-            ts_code: TS代码，如：000001.SZ，None表示查询所有
+            ts_code: TS代码，单个代码如：000001.SZ，多个代码如：['000001.SZ', '000002.SZ']，None表示查询所有
             start_date: 开始日期
             end_date: 结束日期
+
+        逻辑：
+        - 单个code：直接查询分表
+        - 多个code或None：查询视图，如果视图不存在则抛出异常
         """
         from loguru import logger
+        from sqlalchemy import inspect
 
         from zquant.database import engine
 
-        # 检查视图是否存在
-        inspector = inspect(engine)
-        view_exists = TUSTOCK_DAILY_BASIC_VIEW_NAME in inspector.get_table_names()
+        records = []
 
-        if not view_exists:
-            logger.warning(f"视图 {TUSTOCK_DAILY_BASIC_VIEW_NAME} 不存在，尝试创建...")
-            from zquant.data.view_manager import create_or_update_daily_basic_view
+        # 判断是单个code还是多个code/None
+        is_single_code = isinstance(ts_code, str)
 
-            if not create_or_update_daily_basic_view(db):
-                logger.error("无法创建视图，返回空列表")
+        if is_single_code:
+            # 单个code：直接查询分表
+            table_name = get_daily_basic_table_name(ts_code)
+            inspector = inspect(engine)
+            if table_name not in inspector.get_table_names():
+                logger.warning(f"分表 {table_name} 不存在，返回空列表")
                 return []
 
-        # 构建查询条件
-        conditions = []
-        params = {}
+            # 构建查询条件
+            conditions = []
+            params = {}
 
-        if ts_code:
             conditions.append("ts_code = :ts_code")
             params["ts_code"] = ts_code
 
-        if start_date:
-            conditions.append("trade_date >= :start_date")
-            params["start_date"] = start_date
+            if start_date:
+                conditions.append("trade_date >= :start_date")
+                params["start_date"] = start_date
 
-        if end_date:
-            conditions.append("trade_date <= :end_date")
-            params["end_date"] = end_date
+            if end_date:
+                conditions.append("trade_date <= :end_date")
+                params["end_date"] = end_date
 
-        where_clause = " AND ".join(conditions) if conditions else "1=1"
+            where_clause = " AND ".join(conditions) if conditions else "1=1"
 
-        # 通过视图查询
-        sql = f"""
-        SELECT * FROM `{TUSTOCK_DAILY_BASIC_VIEW_NAME}`
-        WHERE {where_clause}
-        ORDER BY ts_code, trade_date
-        """
+            # 查询分表
+            try:
+                sql = f"""
+                SELECT * FROM `{table_name}`
+                WHERE {where_clause}
+                ORDER BY ts_code, trade_date DESC
+                """
 
-        result = db.execute(text(sql), params)
-        rows = result.fetchall()
+                result = db.execute(text(sql), params)
+                rows = result.fetchall()
 
-        # 获取列名
-        columns = result.keys()
+                # 获取列名
+                columns = result.keys()
 
-        # 转换为字典列表
-        records = []
-        for row in rows:
-            row_dict = dict(zip(columns, row, strict=False))
-            # 处理日期字段
-            if row_dict.get("trade_date"):
-                if isinstance(row_dict["trade_date"], date):
-                    row_dict["trade_date"] = row_dict["trade_date"].isoformat()
-                elif isinstance(row_dict["trade_date"], str):
-                    pass  # 已经是字符串格式
-            # 处理浮点数字段（可能为 None）
-            float_fields = [
-                "close",
-                "turnover_rate",
-                "turnover_rate_f",
-                "volume_ratio",
-                "pe",
-                "pe_ttm",
-                "pb",
-                "ps",
-                "ps_ttm",
-                "dv_ratio",
-                "dv_ttm",
-                "total_share",
-                "float_share",
-                "free_share",
-                "total_mv",
-                "circ_mv",
-            ]
-            for field in float_fields:
-                if field in row_dict and row_dict[field] is not None:
-                    try:
-                        row_dict[field] = float(row_dict[field])
-                    except (ValueError, TypeError):
-                        row_dict[field] = None
-            # 处理时间字段
-            if row_dict.get("created_time"):
-                if hasattr(row_dict["created_time"], "isoformat"):
-                    row_dict["created_time"] = row_dict["created_time"].isoformat()
-            if row_dict.get("updated_time"):
-                if hasattr(row_dict["updated_time"], "isoformat"):
-                    row_dict["updated_time"] = row_dict["updated_time"].isoformat()
+                # 转换为字典列表
+                for row in rows:
+                    row_dict = dict(zip(columns, row, strict=False))
+                    # 处理日期字段
+                    if row_dict.get("trade_date"):
+                        if isinstance(row_dict["trade_date"], date):
+                            row_dict["trade_date"] = row_dict["trade_date"].isoformat()
+                        elif isinstance(row_dict["trade_date"], str):
+                            pass  # 已经是字符串格式
+                    # 处理浮点数字段（可能为 None）
+                    float_fields = [
+                        "close",
+                        "turnover_rate",
+                        "turnover_rate_f",
+                        "volume_ratio",
+                        "pe",
+                        "pe_ttm",
+                        "pb",
+                        "ps",
+                        "ps_ttm",
+                        "dv_ratio",
+                        "dv_ttm",
+                        "total_share",
+                        "float_share",
+                        "free_share",
+                        "total_mv",
+                        "circ_mv",
+                    ]
+                    for field in float_fields:
+                        if field in row_dict and row_dict[field] is not None:
+                            try:
+                                row_dict[field] = float(row_dict[field])
+                            except (ValueError, TypeError):
+                                row_dict[field] = None
+                    # 处理时间字段
+                    if row_dict.get("created_time"):
+                        if hasattr(row_dict["created_time"], "isoformat"):
+                            row_dict["created_time"] = row_dict["created_time"].isoformat()
+                    if row_dict.get("updated_time"):
+                        if hasattr(row_dict["updated_time"], "isoformat"):
+                            row_dict["updated_time"] = row_dict["updated_time"].isoformat()
 
-            records.append(row_dict)
+                    records.append(row_dict)
+            except Exception as e:
+                logger.warning(f"查询分表 {table_name} 失败: {e}")
+                return []
+
+        else:
+            # 多个code或None：查询视图，视图不存在则抛出异常
+            inspector = inspect(engine)
+            # 检查视图是否存在：视图可能在 get_table_names() 或 get_view_names() 中
+            all_tables = inspector.get_table_names()
+            all_views = inspector.get_view_names() if hasattr(inspector, 'get_view_names') else []
+            view_exists = TUSTOCK_DAILY_BASIC_VIEW_NAME in all_tables or TUSTOCK_DAILY_BASIC_VIEW_NAME in all_views
+
+            if not view_exists:
+                error_msg = f"视图 {TUSTOCK_DAILY_BASIC_VIEW_NAME} 不存在，无法查询多个代码或查询所有数据。请先创建视图。"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+
+            # 构建查询条件
+            conditions = []
+            params = {}
+
+            if ts_code:  # 多个code的情况
+                if isinstance(ts_code, list) and len(ts_code) > 0:
+                    # 构建 IN 子句的占位符
+                    placeholders = ",".join([f":ts_code_{i}" for i in range(len(ts_code))])
+                    conditions.append(f"ts_code IN ({placeholders})")
+                    for i, code in enumerate(ts_code):
+                        params[f"ts_code_{i}"] = code
+            # ts_code 为 None 时，不添加 ts_code 条件，查询所有
+
+            if start_date:
+                conditions.append("trade_date >= :start_date")
+                params["start_date"] = start_date
+
+            if end_date:
+                conditions.append("trade_date <= :end_date")
+                params["end_date"] = end_date
+
+            where_clause = " AND ".join(conditions) if conditions else "1=1"
+
+            # 通过视图查询
+            sql = f"""
+            SELECT * FROM `{TUSTOCK_DAILY_BASIC_VIEW_NAME}`
+            WHERE {where_clause}
+            ORDER BY ts_code, trade_date DESC
+            """
+
+            result = db.execute(text(sql), params)
+            rows = result.fetchall()
+
+            # 获取列名
+            columns = result.keys()
+
+            # 转换为字典列表
+            for row in rows:
+                row_dict = dict(zip(columns, row, strict=False))
+                # 处理日期字段
+                if row_dict.get("trade_date"):
+                    if isinstance(row_dict["trade_date"], date):
+                        row_dict["trade_date"] = row_dict["trade_date"].isoformat()
+                    elif isinstance(row_dict["trade_date"], str):
+                        pass  # 已经是字符串格式
+                # 处理浮点数字段（可能为 None）
+                float_fields = [
+                    "close",
+                    "turnover_rate",
+                    "turnover_rate_f",
+                    "volume_ratio",
+                    "pe",
+                    "pe_ttm",
+                    "pb",
+                    "ps",
+                    "ps_ttm",
+                    "dv_ratio",
+                    "dv_ttm",
+                    "total_share",
+                    "float_share",
+                    "free_share",
+                    "total_mv",
+                    "circ_mv",
+                ]
+                for field in float_fields:
+                    if field in row_dict and row_dict[field] is not None:
+                        try:
+                            row_dict[field] = float(row_dict[field])
+                        except (ValueError, TypeError):
+                            row_dict[field] = None
+                # 处理时间字段
+                if row_dict.get("created_time"):
+                    if hasattr(row_dict["created_time"], "isoformat"):
+                        row_dict["created_time"] = row_dict["created_time"].isoformat()
+                if row_dict.get("updated_time"):
+                    if hasattr(row_dict["updated_time"], "isoformat"):
+                        row_dict["updated_time"] = row_dict["updated_time"].isoformat()
+
+                records.append(row_dict)
 
         return records
 
@@ -385,180 +577,345 @@ class DataProcessor:
 
     @staticmethod
     def get_factor_data_records(
-        db: Session, ts_code: str | None = None, start_date: date | None = None, end_date: date | None = None
+        db: Session, ts_code: str | list[str] | None = None, start_date: date | None = None, end_date: date | None = None
     ) -> list[dict]:
         """
-        获取因子数据记录列表（通过视图查询）
+        获取因子数据记录列表
 
         Args:
-            ts_code: TS代码，如：000001.SZ，None表示查询所有
+            ts_code: TS代码，单个代码如：000001.SZ，多个代码如：['000001.SZ', '000002.SZ']，None表示查询所有
             start_date: 开始日期
             end_date: 结束日期
+
+        逻辑：
+        - 单个code：直接查询分表
+        - 多个code或None：查询视图，如果视图不存在则抛出异常
         """
         from loguru import logger
         from sqlalchemy import inspect
 
         from zquant.database import engine
 
-        # 检查视图是否存在
-        inspector = inspect(engine)
-        view_exists = TUSTOCK_FACTOR_VIEW_NAME in inspector.get_table_names()
+        records = []
 
-        if not view_exists:
-            logger.warning(f"视图 {TUSTOCK_FACTOR_VIEW_NAME} 不存在，尝试创建...")
-            from zquant.data.view_manager import create_or_update_factor_view
+        # 判断是单个code还是多个code/None
+        is_single_code = isinstance(ts_code, str)
 
-            if not create_or_update_factor_view(db):
-                logger.error("无法创建视图，返回空列表")
+        if is_single_code:
+            # 单个code：直接查询分表
+            table_name = get_factor_table_name(ts_code)
+            inspector = inspect(engine)
+            if table_name not in inspector.get_table_names():
+                logger.warning(f"分表 {table_name} 不存在，返回空列表")
                 return []
 
-        # 构建查询条件
-        conditions = []
-        params = {}
+            # 构建查询条件
+            conditions = []
+            params = {}
 
-        if ts_code:
             conditions.append("ts_code = :ts_code")
             params["ts_code"] = ts_code
 
-        if start_date:
-            conditions.append("trade_date >= :start_date")
-            params["start_date"] = start_date
+            if start_date:
+                conditions.append("trade_date >= :start_date")
+                params["start_date"] = start_date
 
-        if end_date:
-            conditions.append("trade_date <= :end_date")
-            params["end_date"] = end_date
+            if end_date:
+                conditions.append("trade_date <= :end_date")
+                params["end_date"] = end_date
 
-        where_clause = " AND ".join(conditions) if conditions else "1=1"
+            where_clause = " AND ".join(conditions) if conditions else "1=1"
 
-        # 通过视图查询
-        sql = f"""
-        SELECT * FROM `{TUSTOCK_FACTOR_VIEW_NAME}`
-        WHERE {where_clause}
-        ORDER BY ts_code, trade_date
-        """
+            # 查询分表
+            try:
+                sql = f"""
+                SELECT * FROM `{table_name}`
+                WHERE {where_clause}
+                ORDER BY ts_code, trade_date DESC
+                """
 
-        result = db.execute(text(sql), params)
-        rows = result.fetchall()
+                result = db.execute(text(sql), params)
+                rows = result.fetchall()
 
-        # 获取列名
-        columns = result.keys()
+                # 获取列名
+                columns = result.keys()
 
-        # 转换为字典列表
-        records = []
-        for row in rows:
-            row_dict = dict(zip(columns, row, strict=False))
-            # 处理日期字段
-            if row_dict.get("trade_date"):
-                if isinstance(row_dict["trade_date"], date):
-                    row_dict["trade_date"] = row_dict["trade_date"].isoformat()
-                elif isinstance(row_dict["trade_date"], str):
-                    pass  # 已经是字符串格式
-            # 处理所有浮点数字段（可能为 None）
-            for key, value in row_dict.items():
-                if key not in ["id", "ts_code", "trade_date", "created_by", "updated_by"]:
-                    if value is not None:
-                        try:
-                            row_dict[key] = float(value)
-                        except (ValueError, TypeError):
-                            row_dict[key] = None
-            # 处理时间字段
-            if row_dict.get("created_time"):
-                if hasattr(row_dict["created_time"], "isoformat"):
-                    row_dict["created_time"] = row_dict["created_time"].isoformat()
-            if row_dict.get("updated_time"):
-                if hasattr(row_dict["updated_time"], "isoformat"):
-                    row_dict["updated_time"] = row_dict["updated_time"].isoformat()
+                # 转换为字典列表
+                for row in rows:
+                    row_dict = dict(zip(columns, row, strict=False))
+                    # 处理日期字段
+                    if row_dict.get("trade_date"):
+                        if isinstance(row_dict["trade_date"], date):
+                            row_dict["trade_date"] = row_dict["trade_date"].isoformat()
+                        elif isinstance(row_dict["trade_date"], str):
+                            pass  # 已经是字符串格式
+                    # 处理所有浮点数字段（可能为 None）
+                    for key, value in row_dict.items():
+                        if key not in ["id", "ts_code", "trade_date", "created_by", "updated_by"]:
+                            if value is not None:
+                                try:
+                                    row_dict[key] = float(value)
+                                except (ValueError, TypeError):
+                                    row_dict[key] = None
+                    # 处理时间字段
+                    if row_dict.get("created_time"):
+                        if hasattr(row_dict["created_time"], "isoformat"):
+                            row_dict["created_time"] = row_dict["created_time"].isoformat()
+                    if row_dict.get("updated_time"):
+                        if hasattr(row_dict["updated_time"], "isoformat"):
+                            row_dict["updated_time"] = row_dict["updated_time"].isoformat()
 
-            records.append(row_dict)
+                    records.append(row_dict)
+            except Exception as e:
+                logger.warning(f"查询分表 {table_name} 失败: {e}")
+                return []
+
+        else:
+            # 多个code或None：查询视图，视图不存在则抛出异常
+            inspector = inspect(engine)
+            # 检查视图是否存在：视图可能在 get_table_names() 或 get_view_names() 中
+            all_tables = inspector.get_table_names()
+            all_views = inspector.get_view_names() if hasattr(inspector, 'get_view_names') else []
+            view_exists = TUSTOCK_FACTOR_VIEW_NAME in all_tables or TUSTOCK_FACTOR_VIEW_NAME in all_views
+
+            if not view_exists:
+                error_msg = f"视图 {TUSTOCK_FACTOR_VIEW_NAME} 不存在，无法查询多个代码或查询所有数据。请先创建视图。"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+
+            # 构建查询条件
+            conditions = []
+            params = {}
+
+            if ts_code:  # 多个code的情况
+                if isinstance(ts_code, list) and len(ts_code) > 0:
+                    # 构建 IN 子句的占位符
+                    placeholders = ",".join([f":ts_code_{i}" for i in range(len(ts_code))])
+                    conditions.append(f"ts_code IN ({placeholders})")
+                    for i, code in enumerate(ts_code):
+                        params[f"ts_code_{i}"] = code
+            # ts_code 为 None 时，不添加 ts_code 条件，查询所有
+
+            if start_date:
+                conditions.append("trade_date >= :start_date")
+                params["start_date"] = start_date
+
+            if end_date:
+                conditions.append("trade_date <= :end_date")
+                params["end_date"] = end_date
+
+            where_clause = " AND ".join(conditions) if conditions else "1=1"
+
+            # 通过视图查询
+            sql = f"""
+            SELECT * FROM `{TUSTOCK_FACTOR_VIEW_NAME}`
+            WHERE {where_clause}
+            ORDER BY ts_code, trade_date DESC
+            """
+
+            result = db.execute(text(sql), params)
+            rows = result.fetchall()
+
+            # 获取列名
+            columns = result.keys()
+
+            # 转换为字典列表
+            for row in rows:
+                row_dict = dict(zip(columns, row, strict=False))
+                # 处理日期字段
+                if row_dict.get("trade_date"):
+                    if isinstance(row_dict["trade_date"], date):
+                        row_dict["trade_date"] = row_dict["trade_date"].isoformat()
+                    elif isinstance(row_dict["trade_date"], str):
+                        pass  # 已经是字符串格式
+                # 处理所有浮点数字段（可能为 None）
+                for key, value in row_dict.items():
+                    if key not in ["id", "ts_code", "trade_date", "created_by", "updated_by"]:
+                        if value is not None:
+                            try:
+                                row_dict[key] = float(value)
+                            except (ValueError, TypeError):
+                                row_dict[key] = None
+                # 处理时间字段
+                if row_dict.get("created_time"):
+                    if hasattr(row_dict["created_time"], "isoformat"):
+                        row_dict["created_time"] = row_dict["created_time"].isoformat()
+                if row_dict.get("updated_time"):
+                    if hasattr(row_dict["updated_time"], "isoformat"):
+                        row_dict["updated_time"] = row_dict["updated_time"].isoformat()
+
+                records.append(row_dict)
 
         return records
 
     @staticmethod
     def get_stkfactorpro_data_records(
-        db: Session, ts_code: str | None = None, start_date: date | None = None, end_date: date | None = None
+        db: Session, ts_code: str | list[str] | None = None, start_date: date | None = None, end_date: date | None = None
     ) -> list[dict]:
         """
-        获取专业版因子数据记录列表（通过视图查询）
+        获取专业版因子数据记录列表
 
         Args:
-            ts_code: TS代码，如：000001.SZ，None表示查询所有
+            ts_code: TS代码，单个代码如：000001.SZ，多个代码如：['000001.SZ', '000002.SZ']，None表示查询所有
             start_date: 开始日期
             end_date: 结束日期
+
+        逻辑：
+        - 单个code：直接查询分表
+        - 多个code或None：查询视图，如果视图不存在则抛出异常
         """
         from loguru import logger
         from sqlalchemy import inspect
 
         from zquant.database import engine
 
-        # 检查视图是否存在
-        inspector = inspect(engine)
-        view_exists = TUSTOCK_STKFACTORPRO_VIEW_NAME in inspector.get_table_names()
+        records = []
 
-        if not view_exists:
-            logger.warning(f"视图 {TUSTOCK_STKFACTORPRO_VIEW_NAME} 不存在，尝试创建...")
-            from zquant.data.view_manager import create_or_update_stkfactorpro_view
+        # 判断是单个code还是多个code/None
+        is_single_code = isinstance(ts_code, str)
 
-            if not create_or_update_stkfactorpro_view(db):
-                logger.error("无法创建视图，返回空列表")
+        if is_single_code:
+            # 单个code：直接查询分表
+            table_name = get_stkfactorpro_table_name(ts_code)
+            inspector = inspect(engine)
+            if table_name not in inspector.get_table_names():
+                logger.warning(f"分表 {table_name} 不存在，返回空列表")
                 return []
 
-        # 构建查询条件
-        conditions = []
-        params = {}
+            # 构建查询条件
+            conditions = []
+            params = {}
 
-        if ts_code:
             conditions.append("ts_code = :ts_code")
             params["ts_code"] = ts_code
 
-        if start_date:
-            conditions.append("trade_date >= :start_date")
-            params["start_date"] = start_date
+            if start_date:
+                conditions.append("trade_date >= :start_date")
+                params["start_date"] = start_date
 
-        if end_date:
-            conditions.append("trade_date <= :end_date")
-            params["end_date"] = end_date
+            if end_date:
+                conditions.append("trade_date <= :end_date")
+                params["end_date"] = end_date
 
-        where_clause = " AND ".join(conditions) if conditions else "1=1"
+            where_clause = " AND ".join(conditions) if conditions else "1=1"
 
-        # 通过视图查询
-        sql = f"""
-        SELECT * FROM `{TUSTOCK_STKFACTORPRO_VIEW_NAME}`
-        WHERE {where_clause}
-        ORDER BY ts_code, trade_date
-        """
+            # 查询分表
+            try:
+                sql = f"""
+                SELECT * FROM `{table_name}`
+                WHERE {where_clause}
+                ORDER BY ts_code, trade_date DESC
+                """
 
-        result = db.execute(text(sql), params)
-        rows = result.fetchall()
+                result = db.execute(text(sql), params)
+                rows = result.fetchall()
 
-        # 获取列名
-        columns = result.keys()
+                # 获取列名
+                columns = result.keys()
 
-        # 转换为字典列表
-        records = []
-        for row in rows:
-            row_dict = dict(zip(columns, row, strict=False))
-            # 处理日期字段
-            if row_dict.get("trade_date"):
-                if isinstance(row_dict["trade_date"], date):
-                    row_dict["trade_date"] = row_dict["trade_date"].isoformat()
-                elif isinstance(row_dict["trade_date"], str):
-                    pass  # 已经是字符串格式
-            # 处理所有浮点数字段（可能为 None）
-            for key, value in row_dict.items():
-                if key not in ["id", "ts_code", "trade_date", "created_by", "updated_by"]:
-                    if value is not None:
-                        try:
-                            row_dict[key] = float(value)
-                        except (ValueError, TypeError):
-                            row_dict[key] = None
-            # 处理时间字段
-            if row_dict.get("created_time"):
-                if hasattr(row_dict["created_time"], "isoformat"):
-                    row_dict["created_time"] = row_dict["created_time"].isoformat()
-            if row_dict.get("updated_time"):
-                if hasattr(row_dict["updated_time"], "isoformat"):
-                    row_dict["updated_time"] = row_dict["updated_time"].isoformat()
+                # 转换为字典列表
+                for row in rows:
+                    row_dict = dict(zip(columns, row, strict=False))
+                    # 处理日期字段
+                    if row_dict.get("trade_date"):
+                        if isinstance(row_dict["trade_date"], date):
+                            row_dict["trade_date"] = row_dict["trade_date"].isoformat()
+                        elif isinstance(row_dict["trade_date"], str):
+                            pass  # 已经是字符串格式
+                    # 处理所有浮点数字段（可能为 None）
+                    for key, value in row_dict.items():
+                        if key not in ["id", "ts_code", "trade_date", "created_by", "updated_by"]:
+                            if value is not None:
+                                try:
+                                    row_dict[key] = float(value)
+                                except (ValueError, TypeError):
+                                    row_dict[key] = None
+                    # 处理时间字段
+                    if row_dict.get("created_time"):
+                        if hasattr(row_dict["created_time"], "isoformat"):
+                            row_dict["created_time"] = row_dict["created_time"].isoformat()
+                    if row_dict.get("updated_time"):
+                        if hasattr(row_dict["updated_time"], "isoformat"):
+                            row_dict["updated_time"] = row_dict["updated_time"].isoformat()
 
-            records.append(row_dict)
+                    records.append(row_dict)
+            except Exception as e:
+                logger.warning(f"查询分表 {table_name} 失败: {e}")
+                return []
+
+        else:
+            # 多个code或None：查询视图，视图不存在则抛出异常
+            inspector = inspect(engine)
+            # 检查视图是否存在：视图可能在 get_view_names() 中
+            all_views = inspector.get_view_names() if hasattr(inspector, 'get_view_names') else []
+            view_exists = TUSTOCK_STKFACTORPRO_VIEW_NAME in all_views
+
+            if not view_exists:
+                error_msg = f"视图 {TUSTOCK_STKFACTORPRO_VIEW_NAME} 不存在，无法查询多个代码或查询所有数据。请先创建视图。"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+
+            # 构建查询条件
+            conditions = []
+            params = {}
+
+            if ts_code:  # 多个code的情况
+                if isinstance(ts_code, list) and len(ts_code) > 0:
+                    # 构建 IN 子句的占位符
+                    placeholders = ",".join([f":ts_code_{i}" for i in range(len(ts_code))])
+                    conditions.append(f"ts_code IN ({placeholders})")
+                    for i, code in enumerate(ts_code):
+                        params[f"ts_code_{i}"] = code
+            # ts_code 为 None 时，不添加 ts_code 条件，查询所有
+
+            if start_date:
+                conditions.append("trade_date >= :start_date")
+                params["start_date"] = start_date
+
+            if end_date:
+                conditions.append("trade_date <= :end_date")
+                params["end_date"] = end_date
+
+            where_clause = " AND ".join(conditions) if conditions else "1=1"
+
+            # 通过视图查询
+            sql = f"""
+            SELECT * FROM `{TUSTOCK_STKFACTORPRO_VIEW_NAME}`
+            WHERE {where_clause}
+            ORDER BY ts_code, trade_date DESC
+            """
+
+            result = db.execute(text(sql), params)
+            rows = result.fetchall()
+
+            # 获取列名
+            columns = result.keys()
+
+            # 转换为字典列表
+            for row in rows:
+                row_dict = dict(zip(columns, row, strict=False))
+                # 处理日期字段
+                if row_dict.get("trade_date"):
+                    if isinstance(row_dict["trade_date"], date):
+                        row_dict["trade_date"] = row_dict["trade_date"].isoformat()
+                    elif isinstance(row_dict["trade_date"], str):
+                        pass  # 已经是字符串格式
+                # 处理所有浮点数字段（可能为 None）
+                for key, value in row_dict.items():
+                    if key not in ["id", "ts_code", "trade_date", "created_by", "updated_by"]:
+                        if value is not None:
+                            try:
+                                row_dict[key] = float(value)
+                            except (ValueError, TypeError):
+                                row_dict[key] = None
+                # 处理时间字段
+                if row_dict.get("created_time"):
+                    if hasattr(row_dict["created_time"], "isoformat"):
+                        row_dict["created_time"] = row_dict["created_time"].isoformat()
+                if row_dict.get("updated_time"):
+                    if hasattr(row_dict["updated_time"], "isoformat"):
+                        row_dict["updated_time"] = row_dict["updated_time"].isoformat()
+
+                records.append(row_dict)
 
         return records

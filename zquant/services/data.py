@@ -16,9 +16,9 @@
 # Contact:
 #     - Email: kevin@vip.qq.com
 #     - Wechat: zquant2025
-#     - Issues: https://github.com/zquant/zquant/issues
-#     - Documentation: https://docs.zquant.com
-#     - Repository: https://github.com/zquant/zquant
+#     - Issues: https://github.com/yoyoung/zquant/issues
+#     - Documentation: https://github.com/yoyoung/zquant/blob/main/README.md
+#     - Repository: https://github.com/yoyoung/zquant
 
 """
 数据服务
@@ -57,6 +57,47 @@ class DataService:
         """
         result = {}
 
+        # 使用CodeConverter批量转换代码
+        from zquant.utils.code_converter import CodeConverter
+
+        # 先批量转换所有symbol到ts_code
+        symbols_to_convert = [s.strip() for s in symbols if s and s.strip()]
+        symbol_to_ts_code_map = {}
+        
+        # 对于已经是TS代码格式的，直接使用
+        # 对于纯数字格式的，批量查询
+        symbols_to_query = []
+        for symbol in symbols_to_convert:
+            if "." in symbol:
+                symbol_to_ts_code_map[symbol] = symbol
+            elif len(symbol) == 6 and symbol.isdigit():
+                symbols_to_query.append(symbol)
+            else:
+                # 其他格式，尝试转换
+                ts_code = CodeConverter.to_ts_code(symbol, db)
+                if ts_code:
+                    symbol_to_ts_code_map[symbol] = ts_code
+
+        # 批量查询数据库
+        if symbols_to_query:
+            from zquant.repositories.stock_repository import StockRepository
+            stock_repo = StockRepository(db)
+            batch_map = stock_repo.batch_get_ts_codes_by_symbols(symbols_to_query)
+            symbol_to_ts_code_map.update(batch_map)
+
+        # 对于没有找到的，使用CodeConverter推断
+        for symbol in symbols_to_convert:
+            if symbol not in symbol_to_ts_code_map:
+                ts_code = CodeConverter.to_ts_code(symbol, db)
+                if ts_code:
+                    symbol_to_ts_code_map[symbol] = ts_code
+                else:
+                    # 获取所有可能的格式
+                    possible_symbols = CodeConverter.get_possible_ts_codes(symbol, db)
+                    if possible_symbols:
+                        symbol_to_ts_code_map[symbol] = possible_symbols[0]  # 使用第一个
+
+        # 处理每个symbol
         for symbol in symbols:
             symbol = symbol.strip() if symbol else ""
             if not symbol:
@@ -66,36 +107,15 @@ class DataService:
 
             logger.info(f"查询财务数据: symbol={symbol}, statement_type={statement_type}, report_date={report_date}")
 
-            # 生成所有可能的 symbol 格式用于查询
-            possible_symbols = []
-
-            # 1. 如果已经是 ts_code 格式（包含 .），直接使用
-            if "." in symbol:
-                possible_symbols.append(symbol)
-            # 2. 如果是 6 位数字，尝试从 Tustock 表查找对应的 ts_code
-            elif len(symbol) == 6 and symbol.isdigit():
-                # 先尝试从数据库查找
-                stock = db.query(Tustock).filter(Tustock.ts_code.like(f"{symbol}.%")).first()
-                if stock:
-                    possible_symbols.append(stock.ts_code)
-                    logger.info(f"从 Tustock 表找到 ts_code: {stock.ts_code}")
-
-                # 同时尝试常见的格式
-                code_num = int(symbol)
-                if 600000 <= code_num <= 699999:
-                    possible_symbols.append(f"{symbol}.SH")
-                elif (1 <= code_num <= 2999) or (300000 <= code_num <= 399999):
-                    possible_symbols.append(f"{symbol}.SZ")
-                elif 688000 <= code_num <= 689999:  # 科创板
-                    possible_symbols.append(f"{symbol}.SH")
-                elif 430000 <= code_num <= 899999:  # 新三板
-                    possible_symbols.append(f"{symbol}.BJ")
+            # 获取可能的ts_code列表
+            if symbol in symbol_to_ts_code_map:
+                possible_symbols = [symbol_to_ts_code_map[symbol]]
             else:
-                # 3. 其他格式，直接使用
-                possible_symbols.append(symbol)
+                # 如果批量转换失败，使用CodeConverter获取所有可能的格式
+                possible_symbols = CodeConverter.get_possible_ts_codes(symbol, db)
+                if not possible_symbols:
+                    possible_symbols = [symbol]  # 最后尝试原始值
 
-            # 去重
-            possible_symbols = list(dict.fromkeys(possible_symbols))
             logger.info(f"尝试查询的 symbol 格式: {possible_symbols}")
 
             fund = None
@@ -165,10 +185,13 @@ class DataService:
             except:
                 pass
 
-        # 从数据库获取完整记录
+        # 从数据库获取完整记录（使用Repository）
+        from zquant.repositories.trading_date_repository import TradingDateRepository
+
+        trading_date_repo = TradingDateRepository(db)
         # 如果exchange为'all'，传递None表示查询所有
         query_exchange = None if (not exchange or exchange == "all") else exchange
-        records = DataProcessor.get_trading_calendar_records(db, start_date, end_date, query_exchange)
+        records = trading_date_repo.get_trading_calendar_records(start_date, end_date, query_exchange)
 
         # 缓存结果（24小时）
         if records:
@@ -188,63 +211,34 @@ class DataService:
             symbol: 股票代码，精确查询，如：000001
             name: 股票名称，模糊查询
         """
-        query = db.query(Tustock).filter(Tustock.delist_date.is_(None))
+        # 使用Repository查询
+        from zquant.repositories.stock_repository import StockRepository
 
-        # 按交易所精确查询
-        if exchange:
-            query = query.filter(Tustock.exchange == exchange)
-
-        # 按股票代码精确查询
-        if symbol:
-            query = query.filter(Tustock.symbol == symbol)
-
-        # 按股票名称模糊查询
-        if name:
-            query = query.filter(Tustock.name.like(f"%{name}%"))
-
-        # 按上市日期倒序排序（最新的在前，NULL值排在最后）
-        from sqlalchemy import desc
-
-        # MySQL不支持nulls_last()，使用is_(None)作为第二个排序条件
-        # is_(None)对NULL值返回True(1)，对非NULL值返回False(0)
-        # 在排序时False(0)排在True(1)之前，所以非NULL值会排在NULL值之前
-        stocks = query.order_by(desc(Tustock.list_date), Tustock.list_date.is_(None)).all()
-        return [
-            {
-                "ts_code": s.ts_code,
-                "symbol": s.symbol,
-                "name": s.name,
-                "area": s.area,
-                "industry": s.industry,
-                "fullname": s.fullname,
-                "enname": s.enname,
-                "cnspell": s.cnspell,
-                "market": s.market,
-                "exchange": s.exchange,
-                "curr_type": s.curr_type,
-                "list_status": s.list_status,
-                "list_date": s.list_date.isoformat() if s.list_date else None,
-                "delist_date": s.delist_date.isoformat() if s.delist_date else None,
-                "is_hs": s.is_hs,
-                "act_name": s.act_name,
-                "act_ent_type": s.act_ent_type,
-                "created_by": s.created_by,
-                "created_time": s.created_time.isoformat() if s.created_time else None,
-                "updated_by": s.updated_by,
-                "updated_time": s.updated_time.isoformat() if s.updated_time else None,
-            }
-            for s in stocks
-        ]
+        stock_repo = StockRepository(db)
+        stocks = stock_repo.get_stock_list(exchange=exchange, symbol=symbol, name=name)
+        
+        # Repository已经返回字典列表，但需要按上市日期排序
+        # 由于Repository返回的是字典，需要在这里排序
+        from datetime import datetime
+        stocks.sort(
+            key=lambda x: (
+                datetime.fromisoformat(x["list_date"]) if x.get("list_date") else datetime.min,
+                x.get("list_date") is None
+            ),
+            reverse=True
+        )
+        
+        return stocks
 
     @staticmethod
     def get_daily_data(
-        db: Session, ts_code: str | None = None, start_date: date | None = None, end_date: date | None = None
+        db: Session, ts_code: str | list[str] | None = None, start_date: date | None = None, end_date: date | None = None
     ) -> list[dict]:
         """
         获取日线数据（返回完整记录）
 
         Args:
-            ts_code: TS代码，None表示查询所有
+            ts_code: TS代码，单个代码如：000001.SZ，多个代码如：['000001.SZ', '000002.SZ']，None表示查询所有
             start_date: 开始日期
             end_date: 结束日期
         """
@@ -253,7 +247,10 @@ class DataService:
         # 构建缓存键
         cache_key_parts = ["daily_data"]
         if ts_code:
-            cache_key_parts.append(ts_code)
+            if isinstance(ts_code, list):
+                cache_key_parts.append(",".join(sorted(ts_code)))  # 排序以保证一致性
+            else:
+                cache_key_parts.append(ts_code)
         if start_date:
             cache_key_parts.append(str(start_date))
         if end_date:
@@ -279,13 +276,13 @@ class DataService:
 
     @staticmethod
     def get_daily_basic_data(
-        db: Session, ts_code: str | None = None, start_date: date | None = None, end_date: date | None = None
+        db: Session, ts_code: str | list[str] | None = None, start_date: date | None = None, end_date: date | None = None
     ) -> list[dict]:
         """
         获取每日指标数据（返回完整记录）
 
         Args:
-            ts_code: TS代码，None表示查询所有
+            ts_code: TS代码，单个代码如：000001.SZ，多个代码如：['000001.SZ', '000002.SZ']，None表示查询所有
             start_date: 开始日期
             end_date: 结束日期
         """
@@ -294,7 +291,10 @@ class DataService:
         # 构建缓存键
         cache_key_parts = ["daily_basic_data"]
         if ts_code:
-            cache_key_parts.append(ts_code)
+            if isinstance(ts_code, list):
+                cache_key_parts.append(",".join(sorted(ts_code)))  # 排序以保证一致性
+            else:
+                cache_key_parts.append(ts_code)
         if start_date:
             cache_key_parts.append(str(start_date))
         if end_date:
@@ -320,13 +320,13 @@ class DataService:
 
     @staticmethod
     def get_factor_data(
-        db: Session, ts_code: str | None = None, start_date: date | None = None, end_date: date | None = None
+        db: Session, ts_code: str | list[str] | None = None, start_date: date | None = None, end_date: date | None = None
     ) -> list[dict]:
         """
         获取因子数据（返回完整记录）
 
         Args:
-            ts_code: TS代码，None表示查询所有
+            ts_code: TS代码，单个代码如：000001.SZ，多个代码如：['000001.SZ', '000002.SZ']，None表示查询所有
             start_date: 开始日期
             end_date: 结束日期
         """
@@ -335,7 +335,10 @@ class DataService:
         # 构建缓存键
         cache_key_parts = ["factor_data"]
         if ts_code:
-            cache_key_parts.append(ts_code)
+            if isinstance(ts_code, list):
+                cache_key_parts.append(",".join(sorted(ts_code)))  # 排序以保证一致性
+            else:
+                cache_key_parts.append(ts_code)
         if start_date:
             cache_key_parts.append(str(start_date))
         if end_date:
@@ -361,13 +364,13 @@ class DataService:
 
     @staticmethod
     def get_stkfactorpro_data(
-        db: Session, ts_code: str | None = None, start_date: date | None = None, end_date: date | None = None
+        db: Session, ts_code: str | list[str] | None = None, start_date: date | None = None, end_date: date | None = None
     ) -> list[dict]:
         """
         获取专业版因子数据（返回完整记录）
 
         Args:
-            ts_code: TS代码，None表示查询所有
+            ts_code: TS代码，单个代码如：000001.SZ，多个代码如：['000001.SZ', '000002.SZ']，None表示查询所有
             start_date: 开始日期
             end_date: 结束日期
         """
@@ -376,7 +379,10 @@ class DataService:
         # 构建缓存键
         cache_key_parts = ["stkfactorpro_data"]
         if ts_code:
-            cache_key_parts.append(ts_code)
+            if isinstance(ts_code, list):
+                cache_key_parts.append(",".join(sorted(ts_code)))  # 排序以保证一致性
+            else:
+                cache_key_parts.append(ts_code)
         if start_date:
             cache_key_parts.append(str(start_date))
         if end_date:

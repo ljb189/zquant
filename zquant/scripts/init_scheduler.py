@@ -16,9 +16,9 @@
 # Contact:
 #     - Email: kevin@vip.qq.com
 #     - Wechat: zquant2025
-#     - Issues: https://github.com/zquant/zquant/issues
-#     - Documentation: https://docs.zquant.com
-#     - Repository: https://github.com/zquant/zquant
+#     - Issues: https://github.com/yoyoung/zquant/issues
+#     - Documentation: https://github.com/yoyoung/zquant/blob/main/README.md
+#     - Repository: https://github.com/yoyoung/zquant
 
 """
 定时任务系统初始化脚本
@@ -270,6 +270,22 @@ def create_zquant_tasks(force: bool = False):
                 "enabled": True,
             },
             {
+                "name": "同步交易日历-命令执行（手动）",
+                "description": "使用命令执行方式同步交易日历数据，支持手动触发",
+                "config": {"command": "python zquant/scheduler/job/sync_trading_calendar.py --start-date 20250101", "timeout_seconds": 600},
+                "max_retries": 3,
+                "retry_interval": 300,
+                "enabled": False,  # 手动任务默认禁用
+            },
+            {
+                "name": "同步股票列表-命令执行（手动）",
+                "description": "使用命令执行方式同步股票列表数据，支持手动触发",
+                "config": {"command": "python zquant/scheduler/job/sync_stock_list.py", "timeout_seconds": 300},
+                "max_retries": 3,
+                "retry_interval": 300,
+                "enabled": False,  # 手动任务默认禁用
+            },
+            {
                 "name": "同步日线数据-命令执行（时间段）",
                 "description": "使用命令执行方式同步历史日线数据，从20250101开始，用于历史数据补全",
                 "config": {
@@ -286,6 +302,17 @@ def create_zquant_tasks(force: bool = False):
                 "config": {
                     "command": "python zquant/scheduler/job/sync_daily_basic_data.py --start-date 20250101",
                     "timeout_seconds": 7200,
+                },
+                "max_retries": 3,
+                "retry_interval": 1800,
+                "enabled": False,  # 手动任务默认禁用
+            },
+            {
+                "name": "同步财务数据-命令执行（时间段）",
+                "description": "使用命令执行方式同步历史财务数据，从20250101开始，用于历史数据补全。依次同步三种报表类型：income（利润表）→ balance（资产负债表）→ cashflow（现金流量表）。如果某个报表类型同步失败，后续类型不会执行",
+                "config": {
+                    "command": "python zquant/scheduler/job/sync_financial_data.py --start-date 20250101",
+                    "timeout_seconds": 10800,  # 3小时（三种报表类型需要更长时间）
                 },
                 "max_retries": 3,
                 "retry_interval": 1800,
@@ -352,6 +379,34 @@ def create_zquant_tasks(force: bool = False):
                 "retry_interval": 1800,
                 "enabled": False,  # 手动任务默认禁用
             },
+            {
+                "name": "STEP9-计算因子（当日）-数据库任务",
+                "cron_expression": "30 18 * * *",  # 每天收盘后18:30执行（在数据同步之后）
+                "description": "使用数据库任务方式计算所有启用的因子，每天收盘后自动计算（在数据同步之后）",
+                "config": {
+                    "task_action": "calculate_factor",
+                    "factor_id": None,  # None表示计算所有启用的因子
+                    "codes": None,  # None表示使用配置中的codes
+                    # start_date 和 end_date 都不提供，则使用今日
+                },
+                "max_retries": 3,
+                "retry_interval": 600,
+                "enabled": True,
+            },
+            {
+                "name": "计算因子-数据库任务（时间段）",
+                "description": "使用数据库任务方式计算因子，支持手动触发，用于历史数据补全或特定日期范围计算",
+                "config": {
+                    "task_action": "calculate_factor",
+                    "factor_id": None,  # None表示计算所有启用的因子
+                    "codes": None,  # None表示使用配置中的codes
+                    "start_date": None,  # 开始日期（ISO格式字符串，如 "2025-01-01"），与end_date一起使用表示日期范围；都不提供则使用今日
+                    "end_date": None,  # 结束日期（ISO格式字符串，如 "2025-01-31"），与start_date一起使用表示日期范围；都不提供则使用今日
+                },
+                "max_retries": 3,
+                "retry_interval": 600,
+                "enabled": False,  # 手动任务默认禁用
+            },
         ]
 
         # 检查已存在的任务
@@ -373,6 +428,133 @@ def create_zquant_tasks(force: bool = False):
                 skipped_count += 1
 
         logger.info(f"✓ ZQuant任务创建完成！共创建 {created_count} 个新任务，跳过 {skipped_count} 个任务")
+
+        # 创建STEP1~STEP9的串行编排任务
+        logger.info("开始创建STEP1~STEP9串行编排任务...")
+        try:
+            # 查询所有STEP任务，获取任务ID映射
+            step_task_names = [
+                "STEP1-同步交易日历（当日）-命令执行",
+                "STEP2-同步股票列表（当日）-命令执行",
+                "STEP3-同步日线数据（当日）-命令执行",
+                "STEP4-同步所有股票日线数据（当日）-数据库任务",
+                "STEP4-同步每日指标数据（当日）-命令执行",
+                "STEP5-同步财务数据-利润表-命令执行",
+                "STEP6-数据表统计-命令执行",
+                "STEP7-同步因子数据（当日）-命令执行",
+                "STEP8-同步专业版因子数据（当日）-命令执行",
+                "STEP9-计算因子（当日）-数据库任务",
+            ]
+
+            step_tasks = db.query(ScheduledTask).filter(ScheduledTask.name.in_(step_task_names)).all()
+            step_task_map = {task.name: task for task in step_tasks}
+
+            # 检查是否所有STEP任务都存在
+            missing_tasks = [name for name in step_task_names if name not in step_task_map]
+            if missing_tasks:
+                logger.warning(f"以下STEP任务不存在，将跳过编排任务创建: {missing_tasks}")
+                logger.info("✓ 跳过创建STEP1~STEP9串行编排任务（部分任务不存在）")
+            else:
+                # 检查是否所有任务都已启用
+                disabled_tasks = [name for name, task in step_task_map.items() if not task.enabled]
+                if disabled_tasks:
+                    logger.warning(f"以下STEP任务未启用: {disabled_tasks}")
+
+                # 创建编排任务配置（串行执行）
+                workflow_config = {
+                    "workflow_type": "serial",
+                    "tasks": [
+                        {
+                            "task_id": step_task_map["STEP1-同步交易日历（当日）-命令执行"].id,
+                            "name": "STEP1-同步交易日历（当日）-命令执行",
+                            "dependencies": [],
+                        },
+                        {
+                            "task_id": step_task_map["STEP2-同步股票列表（当日）-命令执行"].id,
+                            "name": "STEP2-同步股票列表（当日）-命令执行",
+                            "dependencies": [step_task_map["STEP1-同步交易日历（当日）-命令执行"].id],
+                        },
+                        {
+                            "task_id": step_task_map["STEP3-同步日线数据（当日）-命令执行"].id,
+                            "name": "STEP3-同步日线数据（当日）-命令执行",
+                            "dependencies": [step_task_map["STEP2-同步股票列表（当日）-命令执行"].id],
+                        },
+                        {
+                            "task_id": step_task_map["STEP4-同步所有股票日线数据（当日）-数据库任务"].id,
+                            "name": "STEP4-同步所有股票日线数据（当日）-数据库任务",
+                            "dependencies": [step_task_map["STEP3-同步日线数据（当日）-命令执行"].id],
+                        },
+                        {
+                            "task_id": step_task_map["STEP4-同步每日指标数据（当日）-命令执行"].id,
+                            "name": "STEP4-同步每日指标数据（当日）-命令执行",
+                            "dependencies": [step_task_map["STEP4-同步所有股票日线数据（当日）-数据库任务"].id],
+                        },
+                        {
+                            "task_id": step_task_map["STEP5-同步财务数据-利润表-命令执行"].id,
+                            "name": "STEP5-同步财务数据-利润表-命令执行",
+                            "dependencies": [step_task_map["STEP4-同步每日指标数据（当日）-命令执行"].id],
+                        },
+                        {
+                            "task_id": step_task_map["STEP6-数据表统计-命令执行"].id,
+                            "name": "STEP6-数据表统计-命令执行",
+                            "dependencies": [step_task_map["STEP5-同步财务数据-利润表-命令执行"].id],
+                        },
+                        {
+                            "task_id": step_task_map["STEP7-同步因子数据（当日）-命令执行"].id,
+                            "name": "STEP7-同步因子数据（当日）-命令执行",
+                            "dependencies": [step_task_map["STEP6-数据表统计-命令执行"].id],
+                        },
+                        {
+                            "task_id": step_task_map["STEP8-同步专业版因子数据（当日）-命令执行"].id,
+                            "name": "STEP8-同步专业版因子数据（当日）-命令执行",
+                            "dependencies": [step_task_map["STEP7-同步因子数据（当日）-命令执行"].id],
+                        },
+                        {
+                            "task_id": step_task_map["STEP9-计算因子（当日）-数据库任务"].id,
+                            "name": "STEP9-计算因子（当日）-数据库任务",
+                            "dependencies": [step_task_map["STEP8-同步专业版因子数据（当日）-命令执行"].id],
+                        },
+                    ],
+                    "on_failure": "stop",
+                }
+
+                # 检查是否已存在该编排任务
+                workflow_name = "编排任务-STEP1~STEP9串行执行"
+                existing_workflow = (
+                    db.query(ScheduledTask)
+                    .filter(ScheduledTask.name == workflow_name, ScheduledTask.task_type == TaskType.WORKFLOW)
+                    .first()
+                )
+
+                if existing_workflow:
+                    logger.info(f"○ 编排任务已存在: {workflow_name} (ID: {existing_workflow.id})")
+                else:
+                    # 验证编排配置
+                    is_valid, error_msg = SchedulerService.validate_workflow_config(db, workflow_config)
+                    if not is_valid:
+                        logger.error(f"✗ 编排任务配置验证失败: {error_msg}")
+                    else:
+                        # 创建编排任务
+                        workflow_task = SchedulerService.create_task(
+                            db=db,
+                            name=workflow_name,
+                            task_type=TaskType.WORKFLOW,
+                            cron_expression="30 18 * * *",  # 每天收盘后18:30执行（在所有子任务之后）
+                            description="串行执行STEP1~STEP9的所有数据同步任务，按顺序依次执行：交易日历→股票列表→日线数据→日线数据(DB)→每日指标→财务数据→数据统计→因子数据→专业版因子→计算因子",
+                            config=workflow_config,
+                            max_retries=3,
+                            retry_interval=600,
+                            enabled=True,
+                        )
+                        logger.info(f"✓ 创建编排任务: {workflow_task.name} (ID: {workflow_task.id})")
+                        created_count += 1
+
+        except Exception as e:
+            logger.error(f"✗ 创建STEP1~STEP9串行编排任务失败: {e}")
+            import traceback
+
+            traceback.print_exc()
+
         return True
 
     except Exception as e:

@@ -16,9 +16,9 @@
 # Contact:
 #     - Email: kevin@vip.qq.com
 #     - Wechat: zquant2025
-#     - Issues: https://github.com/zquant/zquant/issues
-#     - Documentation: https://docs.zquant.com
-#     - Repository: https://github.com/zquant/zquant
+#     - Issues: https://github.com/yoyoung/zquant/issues
+#     - Documentation: https://github.com/yoyoung/zquant/blob/main/README.md
+#     - Repository: https://github.com/yoyoung/zquant
 
 """
 定时任务管理服务
@@ -188,10 +188,10 @@ class SchedulerService:
                     query = query.order_by(desc(sort_field))
             else:
                 # 无效的排序字段，使用默认排序
-                query = query.order_by(desc(ScheduledTask.created_at))
+                query = query.order_by(desc(ScheduledTask.id))
         else:
             # 未指定排序，使用默认排序
-            query = query.order_by(desc(ScheduledTask.created_at))
+            query = query.order_by(desc(ScheduledTask.id))
 
         # 查询任务
         tasks = query.offset(skip).limit(limit).all()
@@ -474,6 +474,13 @@ class SchedulerService:
         
         # 非手动任务，通过调度器触发
         if scheduler_manager._running:
+            # 检查任务是否已在调度器中，如果不在则先添加
+            job = scheduler_manager.scheduler.get_job(task.job_id)
+            if not job:
+                logger.info(f"任务 {task.name} (job_id: {task.job_id}) 不在调度器中，先添加到调度器")
+                if not scheduler_manager.add_task(task):
+                    logger.error(f"添加任务 {task.name} 到调度器失败")
+                    return False
             return scheduler_manager.trigger_task(task.job_id)
         
         # 如果调度器未运行，直接执行（不创建执行记录，仅用于调试）
@@ -634,7 +641,7 @@ class SchedulerService:
         Returns:
             任务调度状态
         """
-        # 1. 未启用状态优先
+        # 1. 未启用状态优先（包括过期任务）
         if not task.enabled:
             return TaskScheduleStatus.DISABLED
 
@@ -662,30 +669,22 @@ class SchedulerService:
                     if latest_execution.status == TaskStatus.RUNNING:
                         return TaskScheduleStatus.RUNNING
                     if latest_execution.status == TaskStatus.SUCCESS:
-                        return TaskScheduleStatus.COMPLETED
-                    if latest_execution.status == TaskStatus.FAILED:
+                        return TaskScheduleStatus.SUCCESS
+                    if latest_execution.status in (TaskStatus.FAILED, TaskStatus.TERMINATED):
                         return TaskScheduleStatus.FAILED
-                    if latest_execution.status == TaskStatus.TERMINATED:
-                        return TaskScheduleStatus.TERMINATED
             return TaskScheduleStatus.DISABLED
 
-        # 4. 检查过期状态
+        # 4. 检查过期状态（合并到DISABLED）
         if job_status.get("is_expired", False):
-            return TaskScheduleStatus.EXPIRED
+            return TaskScheduleStatus.DISABLED
 
-        # 5. 检查延迟状态
-        if job_status.get("is_delayed", False):
-            return TaskScheduleStatus.DELAYED
-
-        # 6. 检查最新执行状态
+        # 5. 检查最新执行状态
         latest_execution_status = getattr(task, "latest_execution_status", None)
         if latest_execution_status:
             if latest_execution_status == TaskStatus.RUNNING:
                 return TaskScheduleStatus.RUNNING
-            if latest_execution_status == TaskStatus.FAILED:
+            if latest_execution_status in (TaskStatus.FAILED, TaskStatus.TERMINATED):
                 return TaskScheduleStatus.FAILED
-            if latest_execution_status == TaskStatus.TERMINATED:
-                return TaskScheduleStatus.TERMINATED
             if latest_execution_status == TaskStatus.SUCCESS:
                 # 检查是否已完成（成功且无后续执行计划）
                 if db:
@@ -695,15 +694,16 @@ class SchedulerService:
                         # 检查是否有未来的执行计划
                         next_run_time = job_status.get("next_run_time")
                         if not next_run_time:
-                            return TaskScheduleStatus.COMPLETED
+                            return TaskScheduleStatus.SUCCESS
 
-        # 7. 检查pending状态
-        if job_status.get("pending", False):
+        # 6. 检查运行中状态（有执行历史且正在运行）
+        if job_status.get("pending", False) or job_status.get("is_delayed", False):
+            # 延迟状态合并到PENDING
             return TaskScheduleStatus.PENDING
 
-        # 8. 检查scheduled状态（有next_run_time但不在pending）
+        # 7. 检查是否有未来的执行计划（合并SCHEDULED和DELAYED到PENDING）
         if job_status.get("next_run_time"):
-            return TaskScheduleStatus.SCHEDULED
+            return TaskScheduleStatus.PENDING
 
-        # 9. 默认返回scheduled（任务已加入调度器）
-        return TaskScheduleStatus.SCHEDULED
+        # 8. 默认返回PENDING（任务已加入调度器，等待执行）
+        return TaskScheduleStatus.PENDING

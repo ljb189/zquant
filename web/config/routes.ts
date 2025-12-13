@@ -16,9 +16,9 @@
 // Contact:
 //     - Email: kevin@vip.qq.com
 //     - Wechat: zquant2025
-//     - Issues: https://github.com/zquant/zquant/issues
-//     - Documentation: https://docs.zquant.com
-//     - Repository: https://github.com/zquant/zquant
+//     - Issues: https://github.com/yoyoung/zquant/issues
+//     - Documentation: https://github.com/yoyoung/zquant/blob/main/README.md
+//     - Repository: https://github.com/yoyoung/zquant
 
 ﻿/**
  * @name umi 的路由配置
@@ -138,12 +138,27 @@ export default [
     routes: [
       {
         path: '/factor',
-        redirect: '/factor/index',
+        redirect: '/factor/definitions',
       },
       {
-        path: '/factor/index',
-        name: 'factor-index',
-        component: './factor',
+        path: '/factor/definitions',
+        name: 'definitions',
+        component: './factor/definitions',
+      },
+      {
+        path: '/factor/models',
+        name: 'models',
+        component: './factor/models',
+      },
+      {
+        path: '/factor/configs',
+        name: 'configs',
+        component: './factor/configs',
+      },
+      {
+        path: '/factor/results',
+        name: 'results',
+        component: './factor/results',
       },
     ],
   },

@@ -16,9 +16,9 @@
 # Contact:
 #     - Email: kevin@vip.qq.com
 #     - Wechat: zquant2025
-#     - Issues: https://github.com/zquant/zquant/issues
-#     - Documentation: https://docs.zquant.com
-#     - Repository: https://github.com/zquant/zquant
+#     - Issues: https://github.com/yoyoung/zquant/issues
+#     - Documentation: https://github.com/yoyoung/zquant/blob/main/README.md
+#     - Repository: https://github.com/yoyoung/zquant
 
 """
 配置管理 API
@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session
 
 from zquant.api.deps import get_current_active_user
 from zquant.database import get_db
+from zquant.models.data import Config
 from zquant.models.user import User
 from zquant.schemas.config import (
     ConfigCreateRequest,
@@ -96,8 +97,6 @@ def get_config(
             raise HTTPException(status_code=404, detail=f"配置 {config_key} 不存在")
 
         # 使用服务获取配置对象
-        from zquant.models.data import Config
-
         config_obj = db.query(Config).filter(Config.config_key == config_key).first()
         if not config_obj:
             raise HTTPException(status_code=404, detail=f"配置 {config_key} 不存在")
@@ -134,13 +133,27 @@ def set_config(
     require_admin(current_user, db)
 
     try:
-        config = ConfigService.set_config(
-            db=db,
-            config_key=request.config_key,
-            config_value=request.config_value,
-            comment=request.comment,
-            created_by=current_user.username,
-        )
+        # 检查配置是否存在，以确定是创建还是更新
+        existing_config = db.query(Config).filter(Config.config_key == request.config_key).first()
+        
+        if existing_config:
+            # 更新现有配置
+            config = ConfigService.set_config(
+                db=db,
+                config_key=request.config_key,
+                config_value=request.config_value,
+                comment=request.comment,
+                updated_by=current_user.username,
+            )
+        else:
+            # 创建新配置
+            config = ConfigService.set_config(
+                db=db,
+                config_key=request.config_key,
+                config_value=request.config_value,
+                comment=request.comment,
+                created_by=current_user.username,
+            )
 
         # 获取解密后的值用于返回
         decrypted_value = ConfigService.get_config(db, request.config_key, decrypt=True)

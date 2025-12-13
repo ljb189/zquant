@@ -16,9 +16,9 @@
 # Contact:
 #     - Email: kevin@vip.qq.com
 #     - Wechat: zquant2025
-#     - Issues: https://github.com/zquant/zquant/issues
-#     - Documentation: https://docs.zquant.com
-#     - Repository: https://github.com/zquant/zquant
+#     - Issues: https://github.com/yoyoung/zquant/issues
+#     - Documentation: https://github.com/yoyoung/zquant/blob/main/README.md
+#     - Repository: https://github.com/yoyoung/zquant
 
 """
 数据服务API
@@ -89,6 +89,7 @@ from zquant.schemas.data import (
     TableStatisticsResponse,
 )
 from zquant.services.data import DataService
+from zquant.utils.data_utils import clean_nan_values
 
 router = APIRouter()
 
@@ -163,6 +164,8 @@ def fetch_fundamentals_from_api(
 
             if df is not None and not df.empty:
                 records = df.to_dict(orient="records")
+                # 清理NaN值，确保JSON序列化正常
+                records = clean_nan_values(records)
                 all_data[symbol] = records
                 total_count += len(records)
             else:
@@ -783,6 +786,7 @@ def fetch_daily_data_from_api(
     # 循环获取每个股票的数据
     all_data = []
     failed_codes = []
+    error_messages = {}  # 记录每个失败代码的错误信息
 
     for ts_code in ts_codes:
         try:
@@ -798,17 +802,24 @@ def fetch_daily_data_from_api(
             else:
                 logger.warning(f"{ts_code} 无数据")
                 failed_codes.append(ts_code)
+                error_messages[ts_code] = "Tushare API调用成功，但返回数据为空"
 
         except Exception as e:
+            error_msg = str(e)
             logger.error(f"获取 {ts_code} 数据失败: {e}")
             failed_codes.append(ts_code)
+            error_messages[ts_code] = error_msg
 
-    # 判断是否成功
+    # 判断是否成功并构建详细错误消息
     success = len(failed_codes) < len(ts_codes)
     if len(failed_codes) == len(ts_codes):
-        message = f"所有股票代码获取失败"
+        # 所有代码都失败，显示详细错误信息
+        error_details = [f"{code}({error_messages.get(code, '未知错误')})" for code in failed_codes]
+        message = f"所有股票代码获取失败: {', '.join(error_details)}"
     elif len(failed_codes) > 0:
-        message = f"部分股票代码获取失败: {', '.join(failed_codes)}"
+        # 部分代码失败，显示详细错误信息
+        error_details = [f"{code}({error_messages.get(code, '未知错误')})" for code in failed_codes]
+        message = f"部分股票代码获取失败: {', '.join(error_details)}"
     else:
         message = f"成功获取 {len(ts_codes)} 个股票的数据，共 {len(all_data)} 条记录"
 

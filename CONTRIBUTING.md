@@ -21,7 +21,7 @@
 
 如果您发现了 Bug，请通过以下方式报告：
 
-1. **检查现有 Issues**: 在 [Issues](https://github.com/zquant/zquant/issues) 中搜索，确认该问题尚未被报告
+1. **检查现有 Issues**: 在 [Issues](https://github.com/yoyoung/zquant/issues) 中搜索，确认该问题尚未被报告
 2. **创建新 Issue**: 如果问题不存在，请创建新 Issue，包含以下信息：
    - 清晰的标题和描述
    - 复现步骤
@@ -33,7 +33,7 @@
 
 我们欢迎新功能的建议！请：
 
-1. 在 [Issues](https://github.com/zquant/zquant/issues) 中搜索类似的功能请求
+1. 在 [Issues](https://github.com/yoyoung/zquant/issues) 中搜索类似的功能请求
 2. 如果不存在，创建新 Issue，说明：
    - 功能描述和使用场景
    - 为什么这个功能对项目有价值
@@ -63,7 +63,7 @@ git clone https://github.com/YOUR_USERNAME/zquant.git
 cd zquant
 
 # 添加上游仓库
-git remote add upstream https://github.com/zquant/zquant.git
+git remote add upstream https://github.com/yoyoung/zquant.git
 ```
 
 ### 2. 创建虚拟环境
@@ -316,8 +316,8 @@ alembic downgrade -1
 
 如果您在贡献过程中遇到问题：
 
-- 查看 [文档](https://docs.zquant.com)
-- 在 [Issues](https://github.com/zquant/zquant/issues) 中搜索相关问题
+- 查看 [文档](https://github.com/yoyoung/zquant/blob/main/README.md)
+- 在 [Issues](https://github.com/yoyoung/zquant/issues) 中搜索相关问题
 - 创建新 Issue 询问
 - 联系维护者: kevin@vip.qq.com
 

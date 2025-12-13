@@ -16,9 +16,9 @@
 # Contact:
 #     - Email: kevin@vip.qq.com
 #     - Wechat: zquant2025
-#     - Issues: https://github.com/zquant/zquant/issues
-#     - Documentation: https://docs.zquant.com
-#     - Repository: https://github.com/zquant/zquant
+#     - Issues: https://github.com/yoyoung/zquant/issues
+#     - Documentation: https://github.com/yoyoung/zquant/blob/main/README.md
+#     - Repository: https://github.com/yoyoung/zquant
 
 """
 Tushare数据源接口封装
@@ -28,6 +28,8 @@ from loguru import logger
 import pandas as pd
 from sqlalchemy.orm import Session
 import tushare as ts
+import time
+import traceback
 
 from zquant.database import SessionLocal
 from zquant.services.config import ConfigService
@@ -74,6 +76,60 @@ class TushareClient:
         self.pro = ts.pro_api()
         logger.info("Tushare客户端初始化成功")
 
+    def _log_api_call(
+        self,
+        api_name: str,
+        params: dict,
+        start_time: float,
+        df: pd.DataFrame | None = None,
+        error: Exception | None = None,
+    ):
+        """
+        统一的 API 调用日志记录
+
+        Args:
+            api_name: API 名称
+            params: 调用参数（字典格式）
+            start_time: 调用开始时间（time.time() 返回值）
+            df: 返回的 DataFrame（成功时）
+            error: 异常对象（失败时）
+        """
+        elapsed_time = (time.time() - start_time) * 1000  # 转换为毫秒
+
+        # 记录调用参数（debug 级别）
+        params_str = ", ".join([f"{k}={v}" for k, v in params.items() if v])
+        logger.debug(f"[Tushare API] {api_name} - 调用参数: {params_str}")
+
+        if error is not None:
+            # 记录错误信息（error 级别）
+            logger.error(
+                f"[Tushare API] {api_name} - 调用失败: {error}, 类型: {type(error).__name__}, "
+                f"执行时间: {elapsed_time:.2f}ms"
+            )
+            # 记录详细错误堆栈（debug 级别）
+            logger.debug(f"[Tushare API] {api_name} - 详细错误堆栈: {traceback.format_exc()}")
+        elif df is None:
+            # 返回 None 的情况（warning 级别）
+            logger.warning(
+                f"[Tushare API] {api_name} - 返回 None, 执行时间: {elapsed_time:.2f}ms"
+            )
+        elif df.empty:
+            # 返回空数据（info 级别）
+            logger.info(
+                f"[Tushare API] {api_name} - 返回空数据, 执行时间: {elapsed_time:.2f}ms"
+            )
+        else:
+            # 成功获取数据（info 级别）
+            logger.info(
+                f"[Tushare API] {api_name} - 成功获取数据: 数据条数={len(df)}, "
+                f"列数={len(df.columns)}, 列名={list(df.columns)[:10]}, "
+                f"执行时间: {elapsed_time:.2f}ms"
+            )
+            # 记录数据示例（debug 级别，仅前3条）
+            if len(df) > 0:
+                sample_data = df.head(3).to_dict(orient="records")
+                logger.debug(f"[Tushare API] {api_name} - 数据示例（前3条）: {sample_data}")
+
     def get_stock_list(self, exchange: str = "", list_status: str = "") -> pd.DataFrame:
         """
         获取股票列表（返回所有字段）
@@ -82,12 +138,17 @@ class TushareClient:
             exchange: 交易所，如：SSE（上交所）、SZSE（深交所）
             list_status: 上市状态，L=上市，D=退市，P=暂停
         """
+        api_name = "stock_basic"
+        start_time = time.time()
+        params = {"exchange": exchange, "list_status": list_status}
+
         try:
             # 不指定 fields 参数，返回所有字段
             df = self.pro.stock_basic(exchange=exchange, list_status=list_status)
+            self._log_api_call(api_name, params, start_time, df=df)
             return df
         except Exception as e:
-            logger.error(f"获取股票列表失败: {e}")
+            self._log_api_call(api_name, params, start_time, error=e)
             raise
 
     def get_daily_data(
@@ -106,11 +167,16 @@ class TushareClient:
             end_date: 结束日期，格式：YYYYMMDD
             adj: 复权类型
         """
+        api_name = "daily"
+        start_time = time.time()
+        params = {"ts_code": ts_code, "start_date": start_date, "end_date": end_date, "adj": adj}
+
         try:
             df = self.pro.daily(ts_code=ts_code, start_date=start_date, end_date=end_date, adj=adj)
+            self._log_api_call(api_name, params, start_time, df=df)
             return df
         except Exception as e:
-            logger.error(f"获取日线数据失败 {ts_code}: {e}")
+            self._log_api_call(api_name, params, start_time, error=e)
             raise
 
     def get_all_daily_data_by_date(
@@ -128,12 +194,17 @@ class TushareClient:
         Returns:
             包含所有股票日线数据的 DataFrame，包含 ts_code 列
         """
+        api_name = "daily"
+        start_time = time.time()
+        params = {"trade_date": trade_date, "adj": adj}
+
         try:
             # Tushare daily 接口支持不传 ts_code，只传日期来获取所有股票数据
             df = self.pro.daily(trade_date=trade_date, adj=adj)
+            self._log_api_call(api_name, params, start_time, df=df)
             return df
         except Exception as e:
-            logger.error(f"批量获取日线数据失败 {trade_date}: {e}")
+            self._log_api_call(api_name, params, start_time, error=e)
             raise
 
     def get_daily_basic_data(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
@@ -145,11 +216,16 @@ class TushareClient:
             start_date: 开始日期，格式：YYYYMMDD
             end_date: 结束日期，格式：YYYYMMDD
         """
+        api_name = "daily_basic"
+        start_time = time.time()
+        params = {"ts_code": ts_code, "start_date": start_date, "end_date": end_date}
+
         try:
             df = self.pro.daily_basic(ts_code=ts_code, start_date=start_date, end_date=end_date)
+            self._log_api_call(api_name, params, start_time, df=df)
             return df
         except Exception as e:
-            logger.error(f"获取每日指标数据失败 {ts_code}: {e}")
+            self._log_api_call(api_name, params, start_time, error=e)
             raise
 
     def get_all_daily_basic_data_by_date(self, trade_date: str) -> pd.DataFrame:
@@ -162,12 +238,17 @@ class TushareClient:
         Returns:
             包含所有股票每日指标数据的 DataFrame，包含 ts_code 列
         """
+        api_name = "daily_basic"
+        start_time = time.time()
+        params = {"trade_date": trade_date}
+
         try:
             # Tushare daily_basic 接口支持不传 ts_code，只传日期来获取所有股票数据
             df = self.pro.daily_basic(trade_date=trade_date)
+            self._log_api_call(api_name, params, start_time, df=df)
             return df
         except Exception as e:
-            logger.error(f"批量获取每日指标数据失败 {trade_date}: {e}")
+            self._log_api_call(api_name, params, start_time, error=e)
             raise
 
     def get_trade_cal(self, exchange: str = "SSE", start_date: str = "", end_date: str = "") -> pd.DataFrame:
@@ -179,11 +260,16 @@ class TushareClient:
             start_date: 开始日期，格式：YYYYMMDD
             end_date: 结束日期，格式：YYYYMMDD
         """
+        api_name = "trade_cal"
+        start_time = time.time()
+        params = {"exchange": exchange, "start_date": start_date, "end_date": end_date}
+
         try:
             df = self.pro.trade_cal(exchange=exchange, start_date=start_date, end_date=end_date)
+            self._log_api_call(api_name, params, start_time, df=df)
             return df
         except Exception as e:
-            logger.error(f"获取交易日历失败: {e}")
+            self._log_api_call(api_name, params, start_time, error=e)
             raise
 
     def get_fundamentals(
@@ -202,6 +288,17 @@ class TushareClient:
             end_date: 结束日期
             statement_type: 报表类型
         """
+        start_time = time.time()
+        params = {"ts_code": ts_code, "start_date": start_date, "end_date": end_date, "statement_type": statement_type}
+        
+        # 根据 statement_type 确定 API 名称
+        api_name_map = {
+            "income": "income",
+            "balance": "balancesheet",
+            "cashflow": "cashflow",
+        }
+        api_name = api_name_map.get(statement_type, f"fundamentals({statement_type})")
+
         try:
             if statement_type == "income":
                 df = self.pro.income(ts_code=ts_code, start_date=start_date, end_date=end_date)
@@ -211,9 +308,11 @@ class TushareClient:
                 df = self.pro.cashflow(ts_code=ts_code, start_date=start_date, end_date=end_date)
             else:
                 raise ValueError(f"不支持的报表类型: {statement_type}")
+            
+            self._log_api_call(api_name, params, start_time, df=df)
             return df
         except Exception as e:
-            logger.error(f"获取财务数据失败 {ts_code}: {e}")
+            self._log_api_call(api_name, params, start_time, error=e)
             raise
 
     def get_adj_factor(self, ts_code: str, start_date: str = "", end_date: str = "") -> pd.DataFrame:
@@ -225,11 +324,16 @@ class TushareClient:
             start_date: 开始日期
             end_date: 结束日期
         """
+        api_name = "adj_factor"
+        start_time = time.time()
+        params = {"ts_code": ts_code, "start_date": start_date, "end_date": end_date}
+
         try:
             df = self.pro.adj_factor(ts_code=ts_code, start_date=start_date, end_date=end_date)
+            self._log_api_call(api_name, params, start_time, df=df)
             return df
         except Exception as e:
-            logger.error(f"获取复权因子失败 {ts_code}: {e}")
+            self._log_api_call(api_name, params, start_time, error=e)
             raise
 
     def get_stk_factor(self, ts_code: str, start_date: str = "", end_date: str = "") -> pd.DataFrame:
@@ -241,35 +345,22 @@ class TushareClient:
             start_date: 开始日期，格式：YYYYMMDD
             end_date: 结束日期，格式：YYYYMMDD
         """
-        logger.debug(f"[Tushare API] 调用 stk_factor - ts_code: {ts_code}, start_date: {start_date}, end_date: {end_date}")
+        api_name = "stk_factor"
+        start_time = time.time()
+        params = {"ts_code": ts_code, "start_date": start_date, "end_date": end_date}
+
         try:
             df = self.pro.stk_factor(ts_code=ts_code, start_date=start_date, end_date=end_date)
             
-            # 记录 API 返回结果
+            # 处理 None 返回值
             if df is None:
-                logger.warning(f"[Tushare API] stk_factor 返回 None - ts_code: {ts_code}, start_date: {start_date}, end_date: {end_date}")
+                self._log_api_call(api_name, params, start_time, df=None)
                 return pd.DataFrame()
             
-            if df.empty:
-                logger.info(f"[Tushare API] stk_factor 返回空数据 - ts_code: {ts_code}, start_date: {start_date}, end_date: {end_date}")
-            else:
-                logger.info(
-                    f"[Tushare API] stk_factor 成功获取数据 - ts_code: {ts_code}, "
-                    f"数据条数: {len(df)}, 列数: {len(df.columns)}, 列名: {list(df.columns)[:10]}"
-                )
-                # 记录前几条数据示例（仅用于调试）
-                if len(df) > 0:
-                    sample_data = df.head(3).to_dict(orient="records")
-                    logger.debug(f"[Tushare API] stk_factor 数据示例（前3条）: {sample_data}")
-            
+            self._log_api_call(api_name, params, start_time, df=df)
             return df
         except Exception as e:
-            logger.error(
-                f"[Tushare API] 获取股票技术因子数据失败 - ts_code: {ts_code}, "
-                f"start_date: {start_date}, end_date: {end_date}, 错误: {e}, 类型: {type(e).__name__}"
-            )
-            import traceback
-            logger.debug(f"[Tushare API] 详细错误堆栈: {traceback.format_exc()}")
+            self._log_api_call(api_name, params, start_time, error=e)
             raise
 
     def get_stk_factor_pro(self, ts_code: str, start_date: str = "", end_date: str = "") -> pd.DataFrame:
@@ -281,33 +372,20 @@ class TushareClient:
             start_date: 开始日期，格式：YYYYMMDD
             end_date: 结束日期，格式：YYYYMMDD
         """
-        logger.debug(f"[Tushare API] 调用 stk_factor_pro - ts_code: {ts_code}, start_date: {start_date}, end_date: {end_date}")
+        api_name = "stk_factor_pro"
+        start_time = time.time()
+        params = {"ts_code": ts_code, "start_date": start_date, "end_date": end_date}
+
         try:
             df = self.pro.stk_factor_pro(ts_code=ts_code, start_date=start_date, end_date=end_date)
             
-            # 记录 API 返回结果
+            # 处理 None 返回值
             if df is None:
-                logger.warning(f"[Tushare API] stk_factor_pro 返回 None - ts_code: {ts_code}, start_date: {start_date}, end_date: {end_date}")
+                self._log_api_call(api_name, params, start_time, df=None)
                 return pd.DataFrame()
             
-            if df.empty:
-                logger.info(f"[Tushare API] stk_factor_pro 返回空数据 - ts_code: {ts_code}, start_date: {start_date}, end_date: {end_date}")
-            else:
-                logger.info(
-                    f"[Tushare API] stk_factor_pro 成功获取数据 - ts_code: {ts_code}, "
-                    f"数据条数: {len(df)}, 列数: {len(df.columns)}, 列名: {list(df.columns)[:10]}"
-                )
-                # 记录前几条数据示例（仅用于调试）
-                if len(df) > 0:
-                    sample_data = df.head(3).to_dict(orient="records")
-                    logger.debug(f"[Tushare API] stk_factor_pro 数据示例（前3条）: {sample_data}")
-            
+            self._log_api_call(api_name, params, start_time, df=df)
             return df
         except Exception as e:
-            logger.error(
-                f"[Tushare API] 获取股票技术因子（专业版）数据失败 - ts_code: {ts_code}, "
-                f"start_date: {start_date}, end_date: {end_date}, 错误: {e}, 类型: {type(e).__name__}"
-            )
-            import traceback
-            logger.debug(f"[Tushare API] 详细错误堆栈: {traceback.format_exc()}")
+            self._log_api_call(api_name, params, start_time, error=e)
             raise

@@ -16,9 +16,9 @@
 # Contact:
 #     - Email: kevin@vip.qq.com
 #     - Wechat: zquant2025
-#     - Issues: https://github.com/zquant/zquant/issues
-#     - Documentation: https://docs.zquant.com
-#     - Repository: https://github.com/zquant/zquant
+#     - Issues: https://github.com/yoyoung/zquant/issues
+#     - Documentation: https://github.com/yoyoung/zquant/blob/main/README.md
+#     - Repository: https://github.com/yoyoung/zquant
 
 """
 定时任务相关数据库模型
@@ -49,16 +49,12 @@ class TaskStatus(str, enum.Enum):
 class TaskScheduleStatus(str, enum.Enum):
     """任务调度状态（用于ScheduledTask）"""
 
-    RUNNING = "running"  # 运行中：任务正在按计划执行，处于活动状态
+    DISABLED = "disabled"  # 未启用：任务未被激活或已过期
     PAUSED = "paused"  # 已暂停：任务被手动或系统暂停，暂时不执行
-    COMPLETED = "completed"  # 已完成：任务已成功执行完毕，无后续操作
-    FAILED = "failed"  # 失败：任务执行过程中抛出异常或未按预期完成
-    PENDING = "pending"  # 等待中：任务尚未到达执行时间点，处于等待状态
-    TERMINATED = "terminated"  # 异常终止：任务因错误或外部干预提前终止
-    DISABLED = "disabled"  # 未启用：任务未被激活，需手动启用后才可执行
-    DELAYED = "delayed"  # 延迟中：任务因延迟设置（如固定延迟）尚未触发
-    SCHEDULED = "scheduled"  # 调度中：任务已加入调度器队列，等待执行
-    EXPIRED = "expired"  # 过期：任务因超时或未满足条件被取消
+    PENDING = "pending"  # 等待执行：任务已加入调度器，等待到达执行时间点
+    RUNNING = "running"  # 运行中：任务正在执行
+    SUCCESS = "success"  # 成功：任务已成功执行完毕
+    FAILED = "failed"  # 失败：任务执行失败或异常终止
 
 
 class TaskType(str, enum.Enum):
@@ -137,5 +133,70 @@ class TaskExecution(Base):
         return {}
 
     def set_result(self, result: dict):
-        """设置执行结果"""
-        self.result_json = json.dumps(result) if result else None
+        """
+        设置执行结果，只保留有价值的信息
+        
+        不保存 stdout 和 stderr，只保留：
+        - 执行状态：success, exit_code
+        - 执行命令和参数：command
+        - 工作目录：work_dir
+        - 执行时长：duration_seconds
+        - 汇总信息：从 result 中提取的统计信息（如果有）
+        - 进度信息：progress_percent, current_step, total_steps（如果有）
+        """
+        if not result:
+            self.result_json = None
+            return
+        
+        # 构建精简的结果字典，只保留有价值的信息
+        essential_result = {}
+        
+        # 1. 保留执行状态和关键信息
+        for key in ['success', 'exit_code', 'message', 'command', 'work_dir', 'duration_seconds']:
+            if key in result:
+                essential_result[key] = result[key]
+        
+        # 2. 保留进度信息（如果有）
+        for key in ['progress_percent', 'current_step', 'total_steps']:
+            if key in result:
+                essential_result[key] = result[key]
+        
+        # 3. 保留汇总信息（从 result 中提取，不包含 stdout/stderr）
+        # 这些字段可能是脚本返回的汇总统计信息
+        summary_keys = [
+            'total', 'success_count', 'failed_count', 'total_count',
+            'insert_count', 'update_count', 'delete_count',
+            '同步记录数', '总股票数', '成功', '失败'
+        ]
+        for key in summary_keys:
+            if key in result:
+                essential_result[key] = result[key]
+        
+        # 4. 不保存 stdout 和 stderr，但如果有错误信息，可以从 stderr 中提取关键错误
+        # 如果执行失败且有 stderr，尝试提取关键错误信息（只保留前500字符）
+        if not essential_result.get('success', True) and 'stderr' in result:
+            stderr = result.get('stderr', '')
+            if isinstance(stderr, str) and stderr.strip():
+                # 只保留错误信息的前500字符
+                error_summary = stderr.strip()[:500]
+                if len(stderr) > 500:
+                    error_summary += '...'
+                essential_result['error_summary'] = error_summary
+        
+        # 序列化为JSON
+        result_json_str = json.dumps(essential_result, ensure_ascii=False)
+        
+        # 最终安全检查：确保不超过数据库限制（60KB，但实际应该很小）
+        MAX_RESULT_LENGTH = 60000
+        if len(result_json_str) > MAX_RESULT_LENGTH:
+            # 如果还是太长（理论上不应该），只保留最核心的字段
+            core_result = {
+                'success': essential_result.get('success'),
+                'exit_code': essential_result.get('exit_code'),
+                'message': essential_result.get('message'),
+                'command': essential_result.get('command'),
+                '_note': '结果数据过大，仅保留核心字段'
+            }
+            result_json_str = json.dumps(core_result, ensure_ascii=False)
+        
+        self.result_json = result_json_str

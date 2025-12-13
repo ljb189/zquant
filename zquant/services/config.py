@@ -16,9 +16,9 @@
 # Contact:
 #     - Email: kevin@vip.qq.com
 #     - Wechat: zquant2025
-#     - Issues: https://github.com/zquant/zquant/issues
-#     - Documentation: https://docs.zquant.com
-#     - Repository: https://github.com/zquant/zquant
+#     - Issues: https://github.com/yoyoung/zquant/issues
+#     - Documentation: https://github.com/yoyoung/zquant/blob/main/README.md
+#     - Repository: https://github.com/yoyoung/zquant
 
 """
 配置服务类
@@ -80,7 +80,12 @@ class ConfigService:
 
     @staticmethod
     def set_config(
-        db: Session, config_key: str, config_value: str, comment: str | None = None, created_by: str | None = None
+        db: Session,
+        config_key: str,
+        config_value: str,
+        comment: str | None = None,
+        created_by: str | None = None,
+        updated_by: str | None = None,
     ) -> Config:
         """
         设置配置（如果不存在则创建，存在则更新）
@@ -90,7 +95,8 @@ class ConfigService:
             config_key: 配置键
             config_value: 配置值（明文，会自动加密）
             comment: 配置说明
-            created_by: 创建人
+            created_by: 创建人（仅在创建新配置时使用）
+            updated_by: 更新人（仅在更新现有配置时使用，如果未提供则使用 created_by）
 
         Returns:
             Config: 配置对象
@@ -115,7 +121,8 @@ class ConfigService:
             existing_config.config_value = encrypted_value
             if comment is not None:
                 existing_config.comment = comment
-            existing_config.updated_by = created_by
+            # 使用 updated_by，如果未提供则使用 created_by（向后兼容）
+            existing_config.updated_by = updated_by if updated_by is not None else created_by
             existing_config.updated_time = datetime.now()
             db.commit()
             db.refresh(existing_config)
@@ -127,7 +134,7 @@ class ConfigService:
             config_value=encrypted_value,
             comment=comment,
             created_by=created_by,
-            updated_by=created_by,
+            updated_by=created_by,  # 创建时，updated_by 也设置为 created_by
         )
         db.add(new_config)
         db.commit()

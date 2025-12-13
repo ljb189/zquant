@@ -41,6 +41,14 @@ ZQuant系统遵循严格的数据库表名规范，所有表名都有明确的�
 
 - **日志表**：`zq_log_*`（规范定义，当前使用 `zq_stats_apisync`）
 
+- **量化表**：`zq_quant_*`
+  - `zq_quant_favorite` - 我的自选表
+  - `zq_quant_position` - 我的持仓表
+  - `zq_quant_factor_definitions` - 因子定义表
+  - `zq_quant_factor_models` - 因子模型表
+  - `zq_quant_factor_configs` - 因子配置表
+  - `zq_quant_factor_spacex_{code}` - 因子结果表（按code分表）
+
 ## 初始化流程
 
 ### 步骤1：初始化数据库和基础表
@@ -158,7 +166,10 @@ python zquant/scripts/init_view.py
 # 4. 导入策略模板
 python zquant/scripts/init_strategies.py
 
-# 5. 填充测试数据（可选，仅开发环境）
+# 5. 初始化因子系统（可选）
+python zquant/scripts/init_factor.py
+
+# 6. 填充测试数据（可选，仅开发环境）
 python zquant/scripts/seed_data.py
 ```
 
@@ -193,6 +204,8 @@ python zquant/scripts/seed_data.py
 - `zq_backtest_strategies.id` ← `zq_backtest_tasks.strategy_id`
 - `zq_backtest_tasks.id` ← `zq_backtest_results.task_id`
 - `zq_data_tustock_stockbasic.ts_code` ← `zq_data_fundamentals.symbol`
+- `zq_app_users.id` ← `zq_quant_favorite.user_id`
+- `zq_app_users.id` ← `zq_quant_position.user_id`
 
 ## 数据同步日志汇总
 

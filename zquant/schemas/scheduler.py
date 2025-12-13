@@ -16,9 +16,9 @@
 # Contact:
 #     - Email: kevin@vip.qq.com
 #     - Wechat: zquant2025
-#     - Issues: https://github.com/zquant/zquant/issues
-#     - Documentation: https://docs.zquant.com
-#     - Repository: https://github.com/zquant/zquant
+#     - Issues: https://github.com/yoyoung/zquant/issues
+#     - Documentation: https://github.com/yoyoung/zquant/blob/main/README.md
+#     - Repository: https://github.com/yoyoung/zquant
 
 """
 定时任务相关的Pydantic Schema
@@ -67,23 +67,23 @@ class TaskUpdate(BaseModel):
 class TaskResponse(BaseModel):
     """任务响应"""
 
-    id: int
-    name: str
-    job_id: str
-    task_type: TaskType
-    cron_expression: str | None
-    interval_seconds: int | None
-    enabled: bool
-    paused: bool
-    description: str | None
-    config: dict[str, Any] = Field(default_factory=dict)
-    max_retries: int
-    retry_interval: int
-    created_at: datetime
-    updated_at: datetime
-    latest_execution_time: datetime | None = None
-    latest_execution_status: TaskStatus | None = None
-    schedule_status: TaskScheduleStatus | None = None
+    id: int = Field(..., description="任务ID")
+    name: str = Field(..., description="任务名称")
+    job_id: str = Field(..., description="调度器任务ID")
+    task_type: TaskType = Field(..., description="任务类型：manual_task, common_task, workflow")
+    cron_expression: str | None = Field(None, description="Cron表达式（如：0 18 * * *）")
+    interval_seconds: int | None = Field(None, description="间隔秒数")
+    enabled: bool = Field(..., description="是否启用")
+    paused: bool = Field(..., description="是否暂停")
+    description: str | None = Field(None, description="任务描述")
+    config: dict[str, Any] = Field(default_factory=dict, description="任务配置（JSON格式）")
+    max_retries: int = Field(..., description="最大重试次数")
+    retry_interval: int = Field(..., description="重试间隔（秒）")
+    created_at: datetime = Field(..., description="创建时间")
+    updated_at: datetime = Field(..., description="更新时间")
+    latest_execution_time: datetime | None = Field(None, description="最新执行时间")
+    latest_execution_status: TaskStatus | None = Field(None, description="最新执行状态")
+    schedule_status: TaskScheduleStatus | None = Field(None, description="调度状态")
 
     @classmethod
     def from_orm(cls, obj):
@@ -116,16 +116,16 @@ class TaskResponse(BaseModel):
 class ExecutionResponse(BaseModel):
     """任务执行历史响应"""
 
-    id: int
-    task_id: int
-    status: TaskStatus
-    start_time: datetime
-    end_time: datetime | None
-    duration_seconds: int | None
-    result: dict[str, Any] = Field(default_factory=dict)
-    error_message: str | None
-    retry_count: int
-    created_at: datetime
+    id: int = Field(..., description="执行记录ID")
+    task_id: int = Field(..., description="任务ID")
+    status: TaskStatus = Field(..., description="执行状态：pending, running, success, failed")
+    start_time: datetime = Field(..., description="开始时间")
+    end_time: datetime | None = Field(None, description="结束时间")
+    duration_seconds: int | None = Field(None, description="执行耗时（秒）")
+    result: dict[str, Any] = Field(default_factory=dict, description="执行结果（JSON格式）")
+    error_message: str | None = Field(None, description="错误信息")
+    retry_count: int = Field(..., description="重试次数")
+    created_at: datetime = Field(..., description="创建时间")
 
     @classmethod
     def from_orm(cls, obj):
@@ -151,27 +151,27 @@ class ExecutionResponse(BaseModel):
 class TaskStatsResponse(BaseModel):
     """任务统计响应"""
 
-    total_executions: int
-    success_count: int
-    failed_count: int
-    running_count: int
-    success_rate: float
-    avg_duration_seconds: float
-    latest_execution_time: str | None
+    total_executions: int = Field(..., description="总执行次数")
+    success_count: int = Field(..., description="成功次数")
+    failed_count: int = Field(..., description="失败次数")
+    running_count: int = Field(..., description="运行中次数")
+    success_rate: float = Field(..., description="成功率（0-1之间的小数）")
+    avg_duration_seconds: float = Field(..., description="平均执行时长（秒）")
+    latest_execution_time: str | None = Field(None, description="最近执行时间（ISO格式）")
 
 
 class TaskListResponse(BaseModel):
     """任务列表响应"""
 
-    tasks: list[TaskResponse]
-    total: int
+    tasks: list[TaskResponse] = Field(..., description="任务列表")
+    total: int = Field(..., description="总记录数")
 
 
 class ExecutionListResponse(BaseModel):
     """执行历史列表响应"""
 
-    executions: list[ExecutionResponse]
-    total: int
+    executions: list[ExecutionResponse] = Field(..., description="执行记录列表")
+    total: int = Field(..., description="总记录数")
 
 
 class WorkflowTaskItem(BaseModel):

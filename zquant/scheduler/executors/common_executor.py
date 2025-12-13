@@ -16,9 +16,9 @@
 # Contact:
 #     - Email: kevin@vip.qq.com
 #     - Wechat: zquant2025
-#     - Issues: https://github.com/zquant/zquant/issues
-#     - Documentation: https://docs.zquant.com
-#     - Repository: https://github.com/zquant/zquant
+#     - Issues: https://github.com/yoyoung/zquant/issues
+#     - Documentation: https://github.com/yoyoung/zquant/blob/main/README.md
+#     - Repository: https://github.com/yoyoung/zquant
 
 """
 通用任务执行器
@@ -98,8 +98,14 @@ class CommonTaskExecutor(TaskExecutor):
             config_with_action["task_action"] = task_action
             return executor.execute(db, config_with_action, execution)
 
+        if task_action == "calculate_factor":
+            from zquant.scheduler.executors.factor_calculator import FactorCalculatorExecutor
+
+            executor = FactorCalculatorExecutor()
+            return executor.execute(db, config, execution)
+
         raise ValueError(
-            f"不支持的 task_action: {task_action}。支持的 action: example_task, sync_stock_list, sync_trading_calendar, sync_daily_data, sync_all_daily_data"
+            f"不支持的 task_action: {task_action}。支持的 action: example_task, sync_stock_list, sync_trading_calendar, sync_daily_data, sync_all_daily_data, calculate_factor"
         )
 
     def _infer_task_action_from_type(self, task_type: TaskType) -> str | None:

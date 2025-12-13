@@ -16,9 +16,9 @@
 # Contact:
 #     - Email: kevin@vip.qq.com
 #     - Wechat: zquant2025
-#     - Issues: https://github.com/zquant/zquant/issues
-#     - Documentation: https://docs.zquant.com
-#     - Repository: https://github.com/zquant/zquant
+#     - Issues: https://github.com/yoyoung/zquant/issues
+#     - Documentation: https://github.com/yoyoung/zquant/blob/main/README.md
+#     - Repository: https://github.com/yoyoung/zquant
 
 """
 数据存储服务
@@ -165,6 +165,10 @@ class DataStorage:
         if bars_df.empty:
             return 0
 
+        # 如果有多条数据，按照 trade_date 进行升序排序
+        if len(bars_df) > 1:
+            bars_df = bars_df.sort_values(by="trade_date", ascending=True).reset_index(drop=True)
+
         # 获取或创建对应的模型类
         TustockDaily = create_tustock_daily_class(ts_code)
         table_name = get_daily_table_name(ts_code)
@@ -172,6 +176,8 @@ class DataStorage:
         # 确保表存在
         ensure_table_exists(db, TustockDaily, table_name)
 
+        # 按排序后的顺序构建记录列表，确保写入数据库的顺序与排序后的 bars_df 一致
+        # iterrows() 保证按 DataFrame 的行顺序遍历，records 列表的顺序与 bars_df 的行顺序一致
         records = []
         for _, row in bars_df.iterrows():
             record = {
@@ -295,6 +301,10 @@ class DataStorage:
         if basic_df.empty:
             return 0
 
+        # 如果有多条数据，按照 trade_date 进行升序排序
+        if len(basic_df) > 1:
+            basic_df = basic_df.sort_values(by="trade_date", ascending=True).reset_index(drop=True)
+
         # 获取或创建对应的模型类
         TustockDailyBasic = create_tustock_daily_basic_class(ts_code)
         table_name = get_daily_basic_table_name(ts_code)
@@ -302,6 +312,8 @@ class DataStorage:
         # 确保表存在
         ensure_table_exists(db, TustockDailyBasic, table_name)
 
+        # 按排序后的顺序构建记录列表，确保写入数据库的顺序与排序后的 basic_df 一致
+        # iterrows() 保证按 DataFrame 的行顺序遍历，records 列表的顺序与 basic_df 的行顺序一致
         records = []
         for _, row in basic_df.iterrows():
             record = {
@@ -445,9 +457,15 @@ class DataStorage:
         if cal_df.empty:
             return 0
 
+        # 如果有多条数据，按照 cal_date 进行升序排序
+        if len(cal_df) > 1:
+            cal_df = cal_df.sort_values(by="cal_date", ascending=True).reset_index(drop=True)
+
         # 确保表存在
         ensure_table_exists(db, TustockTradecal)
 
+        # 按排序后的顺序构建记录列表，确保写入数据库的顺序与排序后的 cal_df 一致
+        # iterrows() 保证按 DataFrame 的行顺序遍历，records 列表的顺序与 cal_df 的行顺序一致
         records = []
         for _, row in cal_df.iterrows():
             record = {
@@ -563,6 +581,10 @@ class DataStorage:
             logger.warning(f"[数据存储] upsert_factor_data - DataFrame 为空，ts_code: {ts_code}")
             return 0
 
+        # 如果有多条数据，按照 trade_date 进行升序排序
+        if len(factor_df) > 1:
+            factor_df = factor_df.sort_values(by="trade_date", ascending=True).reset_index(drop=True)
+
         logger.info(f"[数据存储] upsert_factor_data 开始 - ts_code: {ts_code}, DataFrame 形状: {factor_df.shape}")
 
         # 获取或创建对应的模型类
@@ -611,6 +633,8 @@ class DataStorage:
             "cci",
         ]
 
+        # 按排序后的顺序构建记录列表，确保写入数据库的顺序与排序后的 factor_df 一致
+        # iterrows() 保证按 DataFrame 的行顺序遍历，records 列表的顺序与 factor_df 的行顺序一致
         records = []
         missing_fields = set()
         conversion_errors = []
@@ -762,6 +786,10 @@ class DataStorage:
             logger.warning(f"[数据存储] upsert_stkfactorpro_data - DataFrame 为空，ts_code: {ts_code}")
             return 0
 
+        # 如果有多条数据，按照 trade_date 进行升序排序
+        if len(factor_df) > 1:
+            factor_df = factor_df.sort_values(by="trade_date", ascending=True).reset_index(drop=True)
+
         logger.info(f"[数据存储] upsert_stkfactorpro_data 开始 - ts_code: {ts_code}, DataFrame 形状: {factor_df.shape}")
 
         # 获取或创建对应的模型类
@@ -769,9 +797,19 @@ class DataStorage:
         table_name = get_stkfactorpro_table_name(ts_code)
         logger.debug(f"[数据存储] upsert_stkfactorpro_data - 表名: {table_name}, ts_code: {ts_code}")
 
+        # 检查表是否已存在（在调用 ensure_table_exists 之前）
+        from sqlalchemy import inspect as sql_inspect
+        from zquant.database import engine
+        
+        inspector = sql_inspect(engine)
+        table_exists_before = table_name in inspector.get_table_names()
+        
         # 确保表存在
         ensure_table_exists(db, TustockStkFactorPro, table_name)
         logger.debug(f"[数据存储] upsert_stkfactorpro_data - 表已确保存在: {table_name}")
+        
+        # 判断表是否是新创建的
+        is_new_table = not table_exists_before
 
         # 定义专业版因子表的所有字段（除了 id, ts_code, trade_date, created_by, created_time, updated_by, updated_time）
         # 注意：pct_chg 而不是 pct_change
@@ -1037,6 +1075,8 @@ class DataStorage:
             "xsii_td4_qfq",
         ]
 
+        # 按排序后的顺序构建记录列表，确保写入数据库的顺序与排序后的 factor_df 一致
+        # iterrows() 保证按 DataFrame 的行顺序遍历，records 列表的顺序与 factor_df 的行顺序一致
         records = []
         missing_fields = set()
         conversion_errors = []
@@ -1091,8 +1131,13 @@ class DataStorage:
                 f"ts_code: {ts_code}, 表: {table_name}"
             )
 
-        # 更新视图（仅在需要时）
-        if update_view:
+        # 更新视图逻辑：
+        # 1. 如果表是新创建的，无论 update_view 参数如何，都必须更新视图（新表必须加入视图）
+        # 2. 如果表已存在，按照 update_view 参数决定是否更新视图
+        if is_new_table:
+            logger.info(f"[数据存储] upsert_stkfactorpro_data - 检测到新表 {table_name}，强制更新视图以确保新表被包含")
+            create_or_update_stkfactorpro_view(db)
+        elif update_view:
             create_or_update_stkfactorpro_view(db)
 
         return count
